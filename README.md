@@ -11,7 +11,7 @@
 
 ## 目录结构
 ```
-0.mw_archive/
+mw_archive/
 ├─ app/                  # 主程序（Docker 仅复制此目录）
 │  ├─ archiver.py        # 采集/归档核心
 │  ├─ server.py          # FastAPI 入口
@@ -89,3 +89,9 @@ docker run -d \
   - 增加实例级重下接口 `POST /api/instances/{inst_id}/redownload`
 - 2025-12-09 v1.0
   - 初始版本：采集归档、生成本地页面、模型库/配置前端、Docker 支持
+
+
+## 待开发
+
+- [ ] 型库页面优化,添加分类/标签/首页详细信息/分页等功能;
+- [ ] 优化配置页
