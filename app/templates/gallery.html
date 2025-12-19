@@ -10,14 +10,32 @@
     header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
     h1 { margin:0; font-size:24px; }
     a.btn { padding:8px 12px; background:#1976d2; color:#fff; border-radius:8px; text-decoration:none; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:14px; }
-    .card { background:#fff; border-radius:10px; padding:12px; box-shadow:0 4px 14px rgba(0,0,0,0.08); display:flex; flex-direction:column; }
-    .card img { width:100%; height:160px; object-fit:cover; border-radius:8px; background:#000; }
-    .title { font-size:15px; margin:8px 0 4px; font-weight:600; }
-    .tags { font-size:12px; color:#666; }
+    .search { margin-bottom:12px; display:flex; flex-direction:column; gap:12px; }
+    input[type=text] { width:100%; padding:10px; border:1px solid #d0d7de; border-radius:8px; box-sizing:border-box; font-size:14px; }
+    .filters { display:flex; align-items:flex-start; flex-wrap:wrap; gap:8px; }
+    .filters__label { font-size:13px; color:#5f6368; line-height:28px; }
+    .filters__chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .filter-chip { border:1px solid #d0d7de; background:#fff; color:#1f2933; border-radius:999px; padding:4px 12px; font-size:13px; cursor:pointer; transition: all .18s ease; }
+    .filter-chip.active { background:#1976d2; color:#fff; border-color:#1976d2; box-shadow:0 10px 25px rgba(25,118,210,0.24); }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap:16px; }
+    .card { background:#fff; border-radius:14px; padding:0; box-shadow:0 10px 25px rgba(15,23,42,0.08); display:flex; flex-direction:column; overflow:hidden; cursor:pointer; transition: transform .25s ease, box-shadow .25s ease; }
+    .card:hover { transform: translateY(-3px); box-shadow:0 14px 35px rgba(15,23,42,0.15); }
+    .card img { width:100%; height:170px; object-fit:cover; background:#000; }
+    .card-body { padding:14px 16px 18px; display:flex; flex-direction:column; gap:6px; flex:1; }
+    .title { font-size:16px; font-weight:600; margin:0; }
+    .card-meta { display:flex; align-items:center; justify-content:space-between; font-size:13px; color:#5b6470; }
+    .author { display:flex; align-items:center; gap:8px; font-weight:500; }
+    .author img { width:32px; height:32px; border-radius:999px; object-fit:cover; border:1px solid #e4e7ec; }
+    .stats { display:flex; flex-wrap:wrap; gap:8px; font-size:12px; color:#1f2933; }
+    .stat-chip { display:flex; align-items:center; gap:6px; border-radius:999px; padding:4px 10px; background:#f2f5fb; color:#27343f; }
+    .stat-chip strong { font-weight:600; }
+    .stat-icon { font-size:14px; }
+    .stat-label { font-size:11px; color:#5f6368; }
+    .badges { display:flex; flex-wrap:wrap; gap:8px; font-size:12px; color:#44506b; }
+    .badges span { background:#f3f4f8; border-radius:999px; padding:3px 12px; }
+    .card-tags { display:flex; flex-wrap:wrap; gap:6px; }
+    .card-tags span { background:#eef2ff; border-radius:999px; padding:3px 10px; font-size:12px; color:#1e40af; }
     .muted { color:#777; font-size:13px; margin-top:8px; }
-    .search { margin-bottom:12px; }
-    input[type=text] { width:100%; padding:10px; border:1px solid #d0d7de; border-radius:8px; box-sizing:border-box; }
   </style>
 </head>
 <body>
@@ -27,47 +45,234 @@
     <a class="btn" href="/config">配置 / 归档</a>
   </header>
   <div class="search">
-    <input type="text" id="kw" placeholder="搜索标题或标签..." oninput="render()" />
+    <input type="text" id="kw" placeholder="搜索标题或标签..." />
+    <div class="filters">
+      <span class="filters__label">分类</span>
+      <div id="filterChips" class="filters__chips"></div>
+    </div>
+    <div class="filters">
+      <span class="filters__label">作者</span>
+      <div id="authorChips" class="filters__chips"></div>
+    </div>
   </div>
   <div id="grid" class="grid"></div>
   <div id="empty" class="muted" style="display:none;">暂无模型</div>
 </div>
 <script>
 let models = [];
+let activeTag = "";
+let activeAuthor = "";
+const statBlueprint = [
+  { key: "likes", icon: "👍", label: "点赞" },
+  { key: "favorites", icon: "⭐", label: "收藏" },
+  { key: "downloads", icon: "⬇️", label: "下载" },
+  { key: "prints", icon: "🖨️", label: "打印" },
+  { key: "views", icon: "👁️", label: "浏览" }
+];
+const kwInput = document.getElementById("kw");
+const filterChips = document.getElementById("filterChips");
+const authorChips = document.getElementById("authorChips");
+
+function formatDate(value){
+  if(!value) return "";
+  const parsed = new Date(value);
+  if(Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("zh-CN");
+}
+
+function toNumber(value){
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 async function load(){
-  const res = await fetch('/api/gallery');
-  models = await res.json();
+  try{
+    const res = await fetch("/api/gallery");
+    models = await res.json();
+  } catch (e) {
+    console.error("载入模型失败", e);
+    models = [];
+  }
+  renderFilters();
+  renderAuthorFilters();
   render();
 }
 
+function renderFilters(){
+  if(!filterChips) return;
+  const counts = {};
+  models.forEach(m => (m.tags || []).forEach(tag => {
+    counts[tag] = (counts[tag] || 0) + 1;
+  }));
+  filterChips.innerHTML = "";
+  const createChip = (label, tag, count) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "filter-chip" + (activeTag === tag ? " active" : "");
+    btn.textContent = `${label}${typeof count === "number" ? ` (${count})` : ""}`;
+    btn.addEventListener("click", () => {
+      activeTag = tag;
+      renderFilters();
+      renderAuthorFilters();
+      render();
+    });
+    return btn;
+  };
+  filterChips.appendChild(createChip("全部模型", "", models.length || 0));
+  Object.entries(counts)
+    .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([tag, count]) => filterChips.appendChild(createChip(tag, tag, count)));
+}
+
+function renderAuthorFilters(){
+  if(!authorChips) return;
+  const counts = {};
+  models.forEach(m => {
+    const name = (m.author && m.author.name) ? m.author.name : "未知作者";
+    counts[name] = (counts[name] || 0) + 1;
+  });
+  authorChips.innerHTML = "";
+  const createChip = (label, name, count) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "filter-chip" + (activeAuthor === name ? " active" : "");
+    btn.textContent = `${label}${typeof count === "number" ? ` (${count})` : ""}`;
+    btn.addEventListener("click", () => {
+      activeAuthor = name;
+      renderFilters();
+      renderAuthorFilters();
+      render();
+    });
+    return btn;
+  };
+  authorChips.appendChild(createChip("全部作者", "", models.length || 0));
+  Object.entries(counts)
+    .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([name, count]) => authorChips.appendChild(createChip(name, name, count)));
+}
+
 function render(){
-  const kw = document.getElementById('kw').value.trim().toLowerCase();
-  const grid = document.getElementById('grid');
-  const empty = document.getElementById('empty');
+  const grid = document.getElementById("grid");
+  const empty = document.getElementById("empty");
+  if(!grid) return;
+  const keyword = (kwInput?.value || "").trim().toLowerCase();
   let list = models;
-  if(kw){
-    list = models.filter(m => (m.title||'').toLowerCase().includes(kw) || (m.tags||[]).some(t => t.toLowerCase().includes(kw)) );
+  if(keyword){
+    list = list.filter(m => {
+      const title = (m.title || m.baseName || "").toLowerCase();
+      const tags = (m.tags || []).map(t => t.toLowerCase());
+      return title.includes(keyword) || tags.some(t => t.includes(keyword));
+    });
   }
-  grid.innerHTML='';
-  if(!list.length){ empty.style.display='block'; return; } else { empty.style.display='none'; }
-  list.forEach(m=>{
-    const card = document.createElement('div');
-    card.className='card';
-    const img = document.createElement('img');
-    img.src = `/files/` + m.dir + `/images/` + (m.cover || 'design_01.jpg');
-    const title = document.createElement('div');
-    title.className='title';
-    title.textContent = m.title || m.baseName;
-    const tags = document.createElement('div');
-    tags.className='tags';
-    tags.textContent = (m.tags||[]).join(' / ');
-    card.appendChild(img);
-    card.appendChild(title);
-    card.appendChild(tags);
-    card.onclick = ()=>{ window.open(`/files/${m.dir}/index.html`,`_blank`); };
+  if(activeTag){
+    list = list.filter(m => (m.tags || []).includes(activeTag));
+  }
+  if(activeAuthor){
+    list = list.filter(m => (m.author?.name || "未知作者") === activeAuthor);
+  }
+  grid.innerHTML = "";
+  if(!list.length){
+    const tips = [];
+    if(activeTag) tips.push(`标签「${activeTag}」`);
+    if(keyword) tips.push(`关键词「${kwInput.value.trim()}」`);
+    if(activeAuthor) tips.push(`作者「${activeAuthor}」`);
+    empty.textContent = tips.length ? `未找到匹配 ${tips.join("、")}` : "暂无模型";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+  list.forEach(m => {
+    const card = document.createElement("article");
+    card.className = "card";
+    card.onclick = () => window.open(`/files/${m.dir}/index.html`, `_blank`);
+    const cover = document.createElement("img");
+    const coverName = m.cover || "design_01.png";
+    cover.src = `/files/${m.dir}/images/${coverName}`;
+    cover.alt = m.title || m.baseName || "模型封面";
+    card.appendChild(cover);
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = m.title || m.baseName || "未知模型";
+    body.appendChild(title);
+
+    const meta = document.createElement("div");
+    meta.className = "card-meta";
+    const authorWrap = document.createElement("div");
+    authorWrap.className = "author";
+    if(m.author?.avatarRelPath){
+      const avatar = document.createElement("img");
+      avatar.src = `/files/${m.dir}/${m.author.avatarRelPath}`;
+      avatar.alt = m.author?.name || "作者头像";
+      authorWrap.appendChild(avatar);
+    }
+    const authorName = document.createElement("span");
+    authorName.textContent = m.author?.name || "未知作者";
+    authorWrap.appendChild(authorName);
+    meta.appendChild(authorWrap);
+
+    const countInfo = document.createElement("span");
+    countInfo.textContent = `${m.instanceCount || 0} 个打印配置`;
+    meta.appendChild(countInfo);
+    body.appendChild(meta);
+
+    const badgeRow = document.createElement("div");
+    badgeRow.className = "badges";
+    let hasBadge = false;
+    if(m.instanceCount){
+      const badge = document.createElement("span");
+      badge.textContent = `打印配置 ${m.instanceCount}`;
+      badgeRow.appendChild(badge);
+      hasBadge = true;
+    }
+    if(m.publishedAt){
+      const badge = document.createElement("span");
+      badge.textContent = `发布时间 ${formatDate(m.publishedAt)}`;
+      badgeRow.appendChild(badge);
+      hasBadge = true;
+    }
+    if(m.collectedAt){
+      const badge = document.createElement("span");
+      badge.textContent = `采集日期 ${formatDate(m.collectedAt)}`;
+      badgeRow.appendChild(badge);
+      hasBadge = true;
+    }
+    if(hasBadge){
+      body.appendChild(badgeRow);
+    }
+
+    const statsWrap = document.createElement("div");
+    statsWrap.className = "stats";
+    statBlueprint.forEach(stat => {
+      const value = toNumber(m.stats?.[stat.key]);
+      const chip = document.createElement("span");
+      chip.className = "stat-chip";
+      chip.title = stat.label;
+      chip.innerHTML = `<span class="stat-icon">${stat.icon}</span><strong>${value}</strong><span class="stat-label">${stat.label}</span>`;
+      statsWrap.appendChild(chip);
+    });
+    body.appendChild(statsWrap);
+
+    if(m.tags?.length){
+      const tagsRow = document.createElement("div");
+      tagsRow.className = "card-tags";
+      m.tags.forEach(tag => {
+        const chip = document.createElement("span");
+        chip.textContent = tag;
+        tagsRow.appendChild(chip);
+      });
+      body.appendChild(tagsRow);
+    }
+
+    card.appendChild(body);
     grid.appendChild(card);
   });
+}
+
+if(kwInput){
+  kwInput.addEventListener("input", render);
 }
 
 load();

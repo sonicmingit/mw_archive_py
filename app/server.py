@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,13 @@ logger.addHandler(fh)
 sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(fmt)
 logger.addHandler(sh)
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+def strip_html(value: str) -> str:
+    if not value:
+        return ""
+    return _TAG_RE.sub("", value).strip()
 
 
 # ---------- 配置与持久化 ----------
@@ -378,13 +386,36 @@ def scan_gallery(cfg) -> List[dict]:
             continue
         try:
             data = json.loads(meta.read_text(encoding="utf-8"))
+            images = data.get("images") or {}
+            cover_name = images.get("cover") or ""
+            cover_file = (d / "images" / cover_name).name if cover_name else ""
+            summary_data = data.get("summary") or {}
+            raw_summary = summary_data.get("text") or summary_data.get("raw") or summary_data.get("html") or ""
+            instances = data.get("instances") or []
+            published_at = None
+            for inst in instances:
+                ts = inst.get("publishTime")
+                if ts and (published_at is None or ts < published_at):
+                    published_at = ts
+            author = data.get("author") or {}
+            collected_at = datetime.fromtimestamp(meta.stat().st_mtime).isoformat()
             items.append({
                 "baseName": data.get("baseName") or d.name,
                 "title": data.get("title"),
                 "id": data.get("id"),
-                "cover": (d / "images" / data.get("images", {}).get("cover", "")).name if data.get("images") else "",
+                "cover": cover_file,
                 "dir": d.name,
                 "tags": data.get("tags") or [],
+                "summary": strip_html(raw_summary),
+                "author": {
+                    "name": author.get("name"),
+                    "url": author.get("url"),
+                    "avatarRelPath": author.get("avatarRelPath"),
+                },
+                "stats": data.get("stats") or {},
+                "instanceCount": len(instances),
+                "publishedAt": published_at,
+                "collectedAt": collected_at,
             })
         except Exception:
             continue
