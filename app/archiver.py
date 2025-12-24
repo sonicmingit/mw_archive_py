@@ -537,6 +537,69 @@ h1.title {
   margin: 6px 0;
 }
 
+.attachments {
+  margin-bottom: 10px;
+}
+
+.attach-upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.attach-upload input[type="file"] {
+  font-size: 13px;
+}
+
+.attach-btn {
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.attach-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.attach-msg {
+  font-size: 12px;
+  color: #666;
+}
+
+.attach-msg.error {
+  color: #b00020;
+}
+
+.attach-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 10px 0 0;
+}
+
+.attach-list li {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.attach-list a {
+  color: #1976d2;
+  text-decoration: none;
+}
+
+.attach-list a:hover {
+  text-decoration: underline;
+}
+
+.attach-empty {
+  color: #888;
+}
+
 .instances .inst-card {
   border: 1px solid #e6e6e6;
   padding: 12px;
@@ -1092,6 +1155,16 @@ def build_index_html(meta: dict, assets: dict) -> str:
     {summary_html}
   </div>
 
+  <div class="section-title">附件</div>
+  <div class="attachments">
+    <div class="attach-upload">
+      <input type="file" id="attachInput">
+      <button class="attach-btn" type="button" id="attachUploadBtn">上传附件</button>
+      <span class="attach-msg" id="attachMsg"></span>
+    </div>
+    <ul class="attach-list" id="attachList"></ul>
+  </div>
+
 </div>
 
 <div class="lightbox" id="imgLightbox">
@@ -1185,6 +1258,109 @@ def build_index_html(meta: dict, assets: dict) -> str:
         else showRemote();
       }})
       .catch(() => showRemote());
+  }});
+}})();
+
+(function() {{
+  const listEl = document.getElementById('attachList');
+  const msgEl = document.getElementById('attachMsg');
+  const inputEl = document.getElementById('attachInput');
+  const btnEl = document.getElementById('attachUploadBtn');
+  if (!listEl) return;
+
+  function setMsg(text, isError) {{
+    if (!msgEl) return;
+    msgEl.textContent = text || '';
+    if (isError) msgEl.classList.add('error');
+    else msgEl.classList.remove('error');
+  }}
+
+  function getModelDir() {{
+    const path = window.location.pathname || '';
+    const parts = path.split('/').filter(Boolean);
+    const filesIdx = parts.indexOf('files');
+    if (filesIdx >= 0 && parts.length > filesIdx + 1) return decodeURIComponent(parts[filesIdx + 1]);
+    if (parts.length >= 2) return decodeURIComponent(parts[parts.length - 2]);
+    return '';
+  }}
+
+  const modelDir = getModelDir();
+  if (!modelDir) {{
+    setMsg('无法识别模型目录', true);
+    return;
+  }}
+
+  function renderList(files) {{
+    listEl.innerHTML = '';
+    if (!files || files.length === 0) {{
+      const li = document.createElement('li');
+      li.className = 'attach-empty';
+      li.textContent = '暂无附件';
+      listEl.appendChild(li);
+      return;
+    }}
+    files.forEach((name) => {{
+      const li = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = './file/' + encodeURIComponent(name);
+      link.textContent = name;
+      link.setAttribute('download', name);
+      li.appendChild(link);
+      listEl.appendChild(li);
+    }});
+  }}
+
+  function loadList() {{
+    if (location.protocol === 'file:') {{
+      renderList([]);
+      setMsg('请通过本地服务打开页面以查看附件列表', true);
+      return;
+    }}
+    fetch('/api/models/' + encodeURIComponent(modelDir) + '/attachments')
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((data) => {{
+        renderList((data && data.files) || []);
+        setMsg('');
+      }})
+      .catch(() => {{
+        renderList([]);
+        setMsg('附件列表加载失败', true);
+      }});
+  }}
+
+  loadList();
+
+  if (!btnEl || !inputEl) return;
+  btnEl.addEventListener('click', () => {{
+    const file = inputEl.files && inputEl.files[0];
+    if (!file) {{
+      setMsg('请选择附件', true);
+      return;
+    }}
+    if (location.protocol === 'file:') {{
+      setMsg('请通过本地服务打开页面以便上传', true);
+      return;
+    }}
+    const fd = new FormData();
+    fd.append('file', file);
+    btnEl.disabled = true;
+    setMsg('上传中...');
+    fetch('/api/models/' + encodeURIComponent(modelDir) + '/attachments', {{
+      method: 'POST',
+      body: fd,
+    }})
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then(() => {{
+        inputEl.value = '';
+        setMsg('上传成功');
+        loadList();
+      }})
+      .catch(() => {{
+        setMsg('上传失败', true);
+      }})
+      .finally(() => {{
+        btnEl.disabled = false;
+      }});
   }});
 }})();
 </script>

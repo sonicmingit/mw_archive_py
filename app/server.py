@@ -9,7 +9,7 @@ from typing import List
 
 import requests
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -46,6 +46,20 @@ def strip_html(value: str) -> str:
     if not value:
         return ""
     return _TAG_RE.sub("", value).strip()
+
+
+def resolve_model_dir(model_dir: str) -> Path:
+    if not model_dir or "/" in model_dir or "\\" in model_dir:
+        raise HTTPException(400, "model_dir 无效")
+    if not model_dir.startswith("MW_"):
+        raise HTTPException(400, "仅允许 MW_* 目录")
+    root = Path(CFG["download_dir"]).resolve()
+    target = (root / model_dir).resolve()
+    if not str(target).startswith(str(root)):
+        raise HTTPException(400, "路径越界")
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(404, "目录不存在")
+    return target
 
 
 # ---------- 配置与持久化 ----------
@@ -608,18 +622,49 @@ async def api_save_gallery_flags(body: dict):
     return {"status": "ok"}
 
 
+@app.get("/api/models/{model_dir}/attachments")
+async def api_list_attachments(model_dir: str):
+    target = resolve_model_dir(model_dir)
+    attach_dir = target / "file"
+    if not attach_dir.exists():
+        return {"files": []}
+    files = sorted([p.name for p in attach_dir.iterdir() if p.is_file()])
+    return {"files": files}
+
+
+@app.post("/api/models/{model_dir}/attachments")
+async def api_upload_attachment(model_dir: str, file: UploadFile = File(...)):
+    if file is None or not file.filename:
+        raise HTTPException(400, "附件不能为空")
+    target = resolve_model_dir(model_dir)
+    safe_name = sanitize_filename(Path(file.filename).name)
+    if not safe_name:
+        safe_name = "attachment"
+    attach_dir = target / "file"
+    attach_dir.mkdir(parents=True, exist_ok=True)
+    dest = attach_dir / safe_name
+    if dest.exists():
+        stem = dest.stem or "attachment"
+        suffix = dest.suffix
+        idx = 1
+        while True:
+            candidate = attach_dir / f"{stem}_{idx}{suffix}"
+            if not candidate.exists():
+                dest = candidate
+                break
+            idx += 1
+    try:
+        with dest.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        logger.exception("附件保存失败")
+        raise HTTPException(500, f"附件保存失败: {e}")
+    return {"status": "ok", "file": dest.name}
+
+
 @app.post("/api/models/{model_dir}/delete")
 async def api_delete_model(model_dir: str):
-    if not model_dir or "/" in model_dir or "\\" in model_dir:
-        raise HTTPException(400, "model_dir 无效")
-    if not model_dir.startswith("MW_"):
-        raise HTTPException(400, "仅允许删除 MW_* 目录")
-    root = Path(CFG["download_dir"]).resolve()
-    target = (root / model_dir).resolve()
-    if not str(target).startswith(str(root)):
-        raise HTTPException(400, "路径越界")
-    if not target.exists() or not target.is_dir():
-        raise HTTPException(404, "目录不存在")
+    target = resolve_model_dir(model_dir)
     try:
         shutil.rmtree(target)
     except Exception as e:
