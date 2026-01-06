@@ -80,6 +80,8 @@ docker run -d \
 - 如需自定义下载/日志目录，修改 `app/config.json`，并相应调整挂载路径
 
 ## 更新日志
+- 2026-01-06 v2.2
+  - 修复排序
 - 2025-12-11 v2.1
   - 新增 `POST /api/models/{model_id}/redownload`，按目录 ID 批量重下模型内全部实例
   - 实例下载路径固定为 `./instances/<实例标题>.3mf`，补下文件无需改页面
