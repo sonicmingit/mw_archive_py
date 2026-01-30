@@ -24,6 +24,7 @@ const filterChips = document.getElementById("filterChips");
 const authorChips = document.getElementById("authorChips");
 const sourceMenu = document.getElementById("sourceMenu");
 const clearBtn = document.getElementById("clearBtn");
+const resetSearchBtn = document.getElementById("resetSearchBtn");
 const paginationWrap = document.getElementById("pagination");
 const pageSizeInput = document.getElementById("pageSizeInput");
 const totalCountEl = document.getElementById("totalCount");
@@ -442,10 +443,7 @@ function lightboxNext() {
   if (currentLightboxIndex < currentLightboxList.length - 1) { currentLightboxIndex++; openLightbox(currentLightboxList, currentLightboxIndex); }
 }
 
-function render(append = false) {
-  const grid = document.getElementById("grid");
-  const empty = document.getElementById("empty");
-  if (!grid) return;
+function getFilteredList() {
   const keyword = (kwInput?.value || "").trim().toLowerCase();
   let list = models;
   if (keyword) {
@@ -471,7 +469,15 @@ function render(append = false) {
     list = list.filter(m => printedSet.has(getModelKey(m)));
   }
 
-  list = sortModelsDesc(list);
+  return sortModelsDesc(list);
+}
+
+function render(append = false) {
+  const grid = document.getElementById("grid");
+  const empty = document.getElementById("empty");
+  if (!grid) return;
+
+  const list = getFilteredList();
   const total = list.length;
   if (totalCountEl) totalCountEl.textContent = String(total);
 
@@ -673,17 +679,27 @@ if (clearBtn && kwInput) {
   });
 }
 
-// RESET BUTTON LISTENER
-const resetSearchBtn = document.getElementById("resetSearchBtn");
+// Reset all filters button
 if (resetSearchBtn) {
   resetSearchBtn.addEventListener("click", () => {
+    // Clear search input
     if (kwInput) kwInput.value = "";
+
+    // Clear filters
     activeTag = "";
     activeAuthor = "";
     activeSource = "";
     onlyFavorites = false;
     onlyPrinted = false;
-    currentPage = 1;
+
+    // Collapse expanded lists
+    isTagsExpanded = false;
+    isAuthorsExpanded = false;
+
+    // Reset display count
+    displayedCount = loadIncrement;
+
+    // Update UI
     syncFlagFilterButtons();
     renderFilters();
     renderAuthorFilters();
@@ -691,6 +707,9 @@ if (resetSearchBtn) {
     render();
   });
 }
+
+// Removed legacy reset button listener that used non-existent currentPage
+
 
 // Removed pageSize input - using infinite scroll now
 

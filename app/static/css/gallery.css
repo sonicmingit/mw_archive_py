@@ -1,12 +1,18 @@
-/* ============================================
-   Gallery Page Styles (Refined & Persistent)
-   ============================================ */
+body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden;
+}
 
 /* Page Wrapper */
 .wrap {
   max-width: 100%;
   margin: 0;
   padding: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Header / Navbar */
@@ -220,6 +226,8 @@ header {
   flex: 1;
   padding: 24px;
   min-width: 0;
+  height: calc(100vh - 64px);
+  overflow-y: auto;
 }
 
 .toolbar {
