@@ -52,6 +52,16 @@ def parse_cookies(cookie_str: str) -> Dict[str, str]:
     return cookies
 
 
+def _extract_auth_token(raw_cookie: str) -> str:
+    cookies = parse_cookies(raw_cookie or "")
+    return (
+        cookies.get("token")
+        or cookies.get("access_token")
+        or cookies.get("accessToken")
+        or ""
+    )
+
+
 def download_file(session: requests.Session, url: str, dest: Path):
     if dest.exists():
         log("存在，跳过：", dest)
@@ -639,18 +649,26 @@ def fetch_instance_3mf(
     返回: (name, url, used_api_url)
     """
     candidates = _build_instance_api_candidates(inst_id, api_url, origin, api_host_hint)
+    auth_token = _extract_auth_token(raw_cookie)
     last_error = None
     for candidate in candidates:
         try:
+            headers = {
+                "Accept": "application/json, text/plain, */*",
+                "Referer": origin or "https://makerworld.com.cn/",
+                "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (MW-Fetcher)"),
+            }
+            if raw_cookie:
+                headers["Cookie"] = raw_cookie
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+                headers["token"] = auth_token
+                headers["X-Token"] = auth_token
+                headers["X-Access-Token"] = auth_token
             r = session.get(
                 candidate,
                 timeout=30,
-                headers={
-                    "Accept": "application/json, text/plain, */*",
-                    "Referer": origin or "https://makerworld.com.cn/",
-                    "Cookie": raw_cookie,
-                    "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (MW-Fetcher)"),
-                },
+                headers=headers,
             )
             log("[3MF] GET", candidate, "status", r.status_code)
             text_preview = r.text[:200] if r.text else ""
@@ -688,8 +706,19 @@ def fetch_instance_3mf(
             f"Referer: {origin or 'https://makerworld.com.cn/'}",
             "-H",
             f"User-Agent: {session.headers.get('User-Agent', 'Mozilla/5.0 (MW-Fetcher-curl)')}",
-            candidate,
         ]
+        if auth_token:
+            cmd.extend([
+                "-H",
+                f"Authorization: Bearer {auth_token}",
+                "-H",
+                f"token: {auth_token}",
+                "-H",
+                f"X-Token: {auth_token}",
+                "-H",
+                f"X-Access-Token: {auth_token}",
+            ])
+        cmd.append(candidate)
         try:
             res = subprocess.run(cmd, capture_output=True, text=False)
             if res.returncode != 0:
