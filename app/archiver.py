@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 """
 archiver.py (app2)
@@ -76,6 +76,32 @@ def pick_instance_filename(inst: dict, name_hint: str = "") -> str:
     return f"{base}{ext}"
 
 
+def fetch_html_with_requests(session: requests.Session, url: str, raw_cookie: str) -> Optional[str]:
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (MW-Fetcher)"),
+    }
+    if raw_cookie:
+        headers["Cookie"] = raw_cookie
+    try:
+        resp = session.get(url, timeout=30, headers=headers)
+    except Exception as e:
+        log("requests 获取页面失败:", e)
+        return None
+    if resp.status_code >= 400:
+        log("requests 获取页面状态异常:", resp.status_code)
+        return None
+    return resp.text
+
+
 def fetch_html_with_curl(url: str, raw_cookie: str) -> str:
     """
     备用：使用 curl 拉取页面，尽量复刻浏览器最小头。
@@ -83,17 +109,29 @@ def fetch_html_with_curl(url: str, raw_cookie: str) -> str:
     cmd = [
         "curl",
         "-sSL",
+        "--compressed",
         "-H",
-        "Accept: */*",
+        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "-H",
-        # 为避免编码问题，要求返回未压缩内容
-        "Accept-Encoding: identity",
+        "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
         "-H",
         "Cache-Control: no-cache",
         "-H",
         "Connection: keep-alive",
         "-H",
         f"Cookie: {raw_cookie}",
+        "-H",
+        "Pragma: no-cache",
+        "-H",
+        "Upgrade-Insecure-Requests: 1",
+        "-H",
+        "Sec-Fetch-Dest: document",
+        "-H",
+        "Sec-Fetch-Mode: navigate",
+        "-H",
+        "Sec-Fetch-Site: none",
+        "-H",
+        "Sec-Fetch-User: ?1",
         "-H",
         "User-Agent: Mozilla/5.0 (MW-Fetcher-curl)",
         url,
@@ -119,15 +157,264 @@ def fetch_html_with_curl(url: str, raw_cookie: str) -> str:
             return stdout.decode("utf-8", errors="ignore")
 
 
+def _json_loads_maybe(raw: str) -> Optional[object]:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
 def extract_next_data(html_text: str) -> dict:
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_text, re.S)
+    patterns = [
+        r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+        r'__NEXT_DATA__\s*=\s*({.*?})\s*;',
+        r'window\.__NEXT_DATA__\s*=\s*({.*?})\s*;',
+        r'__NUXT__\s*=\s*({.*?})\s*;',
+        r'window\.__NUXT__\s*=\s*({.*?})\s*;',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, html_text, re.S)
+        if not m:
+            continue
+        raw = (m.group(1) or "").strip()
+        raw = raw.rstrip(";")
+        data = _json_loads_maybe(raw)
+        if data is not None:
+            return data
+    parse_patterns = [
+        r'__NEXT_DATA__\s*=\s*JSON\.parse\((\".*?\")\)\s*;',
+        r"__NEXT_DATA__\s*=\s*JSON\.parse\(('.*?')\)\s*;",
+        r'__NUXT__\s*=\s*JSON\.parse\((\".*?\")\)\s*;',
+        r"__NUXT__\s*=\s*JSON\.parse\(('.*?')\)\s*;",
+    ]
+    for pattern in parse_patterns:
+        m = re.search(pattern, html_text, re.S)
+        if not m:
+            continue
+        raw = (m.group(1) or "").strip()
+        parsed = _json_loads_maybe(raw)
+        if isinstance(parsed, str):
+            data = _json_loads_maybe(parsed)
+            if data is not None:
+                return data
+    raise RuntimeError("未找到 __NEXT_DATA__")
+
+
+def _get_nested(obj: dict, keys: List[str]):
+    cur = obj
+    for key in keys:
+        if not isinstance(cur, dict) or key not in cur:
+            return None
+        cur = cur[key]
+    return cur
+
+
+def _score_design_candidate(obj: dict) -> int:
+    if not isinstance(obj, dict):
+        return -1
+    score = 0
+    if isinstance(obj.get("instances"), list):
+        score += 3
+    if "designExtension" in obj or "summary" in obj or "summaryHtml" in obj:
+        score += 2
+    if "tags" in obj or "tagsOriginal" in obj:
+        score += 1
+    if "coverUrl" in obj or "coverImage" in obj or "thumbnail" in obj or "thumbnailUrl" in obj:
+        score += 1
+    if "likeCount" in obj or "downloadCount" in obj or "printCount" in obj:
+        score += 1
+    if "designCreator" in obj or "creatorName" in obj or "author" in obj or "user" in obj:
+        score += 1
+    if obj.get("id") is not None and obj.get("title"):
+        score += 1
+    return score
+
+
+def _find_best_design(obj: object) -> Optional[dict]:
+    best = None
+    best_score = -1
+    stack = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            if "design" in cur and isinstance(cur.get("design"), dict):
+                score = _score_design_candidate(cur["design"])
+                if score > best_score:
+                    best = cur["design"]
+                    best_score = score
+            score = _score_design_candidate(cur)
+            if score > best_score:
+                best = cur
+                best_score = score
+            for val in cur.values():
+                stack.append(val)
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    if best_score >= 2:
+        return best
+    return None
+
+
+def extract_design_from_next_data(next_data: dict) -> Optional[dict]:
+    if not isinstance(next_data, dict):
+        return None
+    paths = [
+        ["props", "pageProps", "design"],
+        ["props", "pageProps", "data", "design"],
+        ["props", "pageProps", "pageData", "design"],
+        ["props", "pageProps", "payload", "design"],
+        ["props", "pageProps", "designDetail"],
+        ["props", "pageProps", "model"],
+        ["props", "pageProps", "detail"],
+    ]
+    for path in paths:
+        candidate = _get_nested(next_data, path)
+        if isinstance(candidate, dict):
+            if "design" in candidate and isinstance(candidate.get("design"), dict):
+                return candidate["design"]
+            return candidate
+    page_props = _get_nested(next_data, ["props", "pageProps"]) or next_data.get("pageProps")
+    return _find_best_design(page_props or next_data)
+
+
+def _parse_design_id(url: str) -> Optional[int]:
+    if not url:
+        return None
+    m = re.search(r"/models/(\d+)", url)
     if not m:
-        raise RuntimeError("未找到 __NEXT_DATA__")
-    return json.loads(m.group(1))
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _extract_api_host(html_text: str) -> Optional[str]:
+    if not html_text:
+        return None
+    m = re.search(r'API_HOST"\s*:\s*"([^"]+)"', html_text)
+    if not m:
+        m = re.search(r"API_HOST'\s*:\s*'([^']+)'", html_text)
+    if not m:
+        return None
+    host = (m.group(1) or "").strip()
+    if not host:
+        return None
+    if host.startswith("http://") or host.startswith("https://"):
+        return host
+    return f"https://{host}"
+
+
+def _is_cloudflare_challenge(html_text: str) -> bool:
+    if not html_text:
+        return False
+    lowered = html_text.lower()
+    markers = [
+        "just a moment",
+        "cf_chl",
+        "challenge-platform",
+        "/cdn-cgi/challenge",
+        "cloudflare",
+        "attention required",
+        "checking your browser",
+        "enable javascript and cookies to continue",
+    ]
+    return any(m in lowered for m in markers)
+
+
+def _unwrap_design_payload(payload: object) -> Optional[dict]:
+    if not isinstance(payload, dict):
+        return _find_best_design(payload)
+    direct = _find_best_design(payload)
+    if direct:
+        return direct
+    for key in ["data", "design", "result", "detail", "model", "info"]:
+        candidate = payload.get(key)
+        if isinstance(candidate, dict):
+            if "design" in candidate and isinstance(candidate.get("design"), dict):
+                return candidate["design"]
+            picked = _find_best_design(candidate)
+            if picked:
+                return picked
+    return None
+
+
+def fetch_design_from_api(
+    session: requests.Session,
+    raw_cookie: str,
+    url: str,
+    api_host_hint: Optional[str] = None,
+) -> Optional[dict]:
+    design_id = _parse_design_id(url)
+    if not design_id:
+        return None
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "https://makerworld.com.cn"
+    base_candidates = []
+    if api_host_hint:
+        base_candidates.append(api_host_hint)
+    base_candidates.append(origin)
+    base_candidates.append("https://api.bambulab.cn")
+    base_candidates.append("https://api.bambulab.com")
+    bases = []
+    for base in base_candidates:
+        if not base:
+            continue
+        if base not in bases:
+            bases.append(base)
+
+    path_templates = [
+        "/api/v1/design-service/design/{id}",
+        "/api/v1/design-service/design/{id}/detail",
+        "/api/v1/design-service/design/{id}/detail?source=web",
+        "/api/v1/design-service/design/{id}?lang=zh",
+        "/v1/design-service/design/{id}",
+        "/v1/design-service/design/{id}/detail",
+    ]
+    prefixes = ["", "/makerworld"]
+    endpoints = []
+    for base in bases:
+        for prefix in prefixes:
+            for path in path_templates:
+                endpoints.append(f"{base.rstrip('/')}{prefix}{path.format(id=design_id)}")
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Referer": url,
+        "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (MW-Fetcher)"),
+    }
+    if raw_cookie:
+        headers["Cookie"] = raw_cookie
+    for api_url in endpoints:
+        try:
+            resp = session.get(api_url, timeout=30, headers=headers)
+        except Exception:
+            continue
+        if resp.status_code >= 400:
+            continue
+        try:
+            payload = resp.json()
+        except Exception:
+            continue
+        design = _unwrap_design_payload(payload)
+        if design:
+            return design
+    return None
 
 
 def parse_summary(design: dict, base_name: str, session: requests.Session, out_dir: Path):
-    raw_html = design.get("summary") or ""
+    raw_html = (
+        design.get("summary")
+        or design.get("summaryHtml")
+        or design.get("summary_html")
+        or design.get("summaryContent")
+        or design.get("description")
+        or design.get("desc")
+        or ""
+    )
+    if isinstance(raw_html, dict):
+        raw_html = raw_html.get("html") or raw_html.get("raw") or raw_html.get("text") or ""
     soup = BeautifulSoup(raw_html, "html.parser")
     summary_images = []
     idx = 1
@@ -162,16 +449,19 @@ def parse_summary(design: dict, base_name: str, session: requests.Session, out_d
 
 
 def extract_author(design: dict, html_text: str = None):
-    name = design.get("designCreator", {}).get("name") or design.get("creatorName") or ""
-    username = design.get("designCreator", {}).get("username") or design.get("creatorUsername") or ""
+    creator = design.get("designCreator") or {}
+    name = creator.get("name") or design.get("creatorName") or ""
+    username = creator.get("username") or creator.get("handle") or design.get("creatorUsername") or ""
     url = ""
     avatar_url = ""
     cand = design.get("user") or design.get("author") or design.get("designCreator") or design.get("creator") or {}
-    if cand:
+    if isinstance(cand, dict):
         name = cand.get("nickname") or cand.get("name") or cand.get("username") or name
-        username = cand.get("username") or cand.get("userName") or cand.get("slug") or username
+        username = cand.get("username") or cand.get("userName") or cand.get("slug") or cand.get("handle") or username
         url = cand.get("homepage") or cand.get("url") or ""
         avatar_url = cand.get("avatarUrl") or cand.get("avatar") or cand.get("headImg") or ""
+    elif isinstance(cand, str) and not name:
+        name = cand
     # 兜底从 design 层获取用户名
     if not username:
         username = design.get("creatorName") or design.get("creatorUsername") or username
@@ -206,14 +496,32 @@ def extract_author(design: dict, html_text: str = None):
     }
 
 
+def _normalize_design_pictures(design: dict) -> List[dict]:
+    pics = design.get("designExtension", {}).get("design_pictures")
+    if isinstance(pics, list) and pics:
+        return pics
+    for key in ["designPictures", "design_pictures", "designImages", "images", "pictures"]:
+        cand = design.get(key)
+        if isinstance(cand, list) and cand:
+            return cand
+    cover_url = design.get("coverUrl") or design.get("coverImage") or design.get("thumbnail") or design.get("thumbnailUrl")
+    if cover_url:
+        return [{"url": cover_url}]
+    return []
+
+
 def collect_design_images(design: dict, session: requests.Session, out_dir: Path, base_name: str):
-    pics = design.get("designExtension", {}).get("design_pictures") or []
+    pics = _normalize_design_pictures(design)
     if not pics:
         return [], None
     design_images = []
     cover_meta = None
     for idx, p in enumerate(pics, start=1):
-        url = p.get("url") or p.get("imageUrl")
+        url = ""
+        if isinstance(p, str):
+            url = p
+        elif isinstance(p, dict):
+            url = p.get("url") or p.get("imageUrl") or p.get("src") or p.get("originalUrl") or ""
         if not url:
             continue
         ext = pick_ext_from_url(url)
@@ -294,14 +602,19 @@ def fetch_instance_3mf(session: requests.Session, inst_id: int, raw_cookie: str,
 
 
 def collect_instance_media(inst: dict, session: requests.Session, out_dir: Path, base_name: str):
-    model_info = inst.get("extention", {}).get("modelInfo") or {}
-    plates = model_info.get("plates") or []
-    aux_pics = model_info.get("auxiliaryPictures") or []
+    model_info = (
+        inst.get("extention", {}).get("modelInfo")
+        or inst.get("extension", {}).get("modelInfo")
+        or inst.get("modelInfo")
+        or {}
+    )
+    plates = model_info.get("plates") or model_info.get("plateList") or []
+    aux_pics = model_info.get("auxiliaryPictures") or model_info.get("pictures") or inst.get("pictures") or inst.get("auxiliaryPictures") or []
     plate_out = []
     pics_out = []
     # plates thumbs
     for p in plates:
-        thumb = p.get("thumbnail", {}).get("url")
+        thumb = p.get("thumbnail", {}).get("url") or p.get("thumbnailUrl") or p.get("url")
         if not thumb:
             continue
         ext = pick_ext_from_url(thumb)
@@ -319,7 +632,13 @@ def collect_instance_media(inst: dict, session: requests.Session, out_dir: Path,
     # auxiliary pictures
     pic_idx = 1
     for pic in aux_pics:
-        url = pic.get("url")
+        url = ""
+        is_real = 0
+        if isinstance(pic, str):
+            url = pic
+        elif isinstance(pic, dict):
+            url = pic.get("url") or pic.get("imageUrl") or pic.get("src") or ""
+            is_real = pic.get("isRealLifePhoto", 0)
         if not url:
             continue
         ext = pick_ext_from_url(url)
@@ -330,23 +649,52 @@ def collect_instance_media(inst: dict, session: requests.Session, out_dir: Path,
             "url": url,
             "relPath": f"images/{fname}",
             "fileName": fname,
-            "isRealLifePhoto": pic.get("isRealLifePhoto", 0),
+            "isRealLifePhoto": is_real,
         })
         pic_idx += 1
+    if not pics_out:
+        cover = inst.get("cover") or inst.get("coverUrl")
+        if cover:
+            ext = pick_ext_from_url(cover)
+            fname = f"{base_name}_inst{inst.get('id')}_pic_{pic_idx:02d}.{ext}"
+            download_file(session, cover, out_dir / fname)
+            pics_out.append({
+                "index": pic_idx,
+                "url": cover,
+                "relPath": f"images/{fname}",
+                "fileName": fname,
+                "isRealLifePhoto": 0,
+            })
     return plate_out, pics_out
 
 
+def extract_instances(design: dict) -> List[dict]:
+    for key in ["instances", "instanceList", "modelInstances", "profiles", "printProfiles", "printingProfiles"]:
+        cand = design.get(key)
+        if isinstance(cand, list) and cand:
+            return cand
+    return []
+
+
 def build_meta(design: dict, summary: dict, design_images: List[dict], cover_meta: Optional[dict], instances: List[dict], author: dict, base_name: str):
+    counts = design.get("counts") or {}
     stats = {
-        "likes": design.get("likeCount") or 0,
-        "favorites": design.get("collectionCount") or design.get("favoriteCount") or design.get("favCount") or 0,
-        "downloads": design.get("downloadCount") or 0,
-        "prints": design.get("printCount") or 0,
-        "views": design.get("readCount") or 0,
+        "likes": design.get("likeCount") or counts.get("likes") or 0,
+        "favorites": design.get("collectionCount") or design.get("favoriteCount") or design.get("favCount") or counts.get("favorites") or 0,
+        "downloads": design.get("downloadCount") or counts.get("downloads") or 0,
+        "prints": design.get("printCount") or counts.get("prints") or 0,
+        "views": design.get("readCount") or counts.get("views") or 0,
     }
     images_design_list = [d["fileName"] for d in design_images]
     summary_image_list = [i["fileName"] for i in summary.get("summaryImages", [])]
     cover_local = cover_meta["fileName"] if cover_meta else ""
+    cover_url = (
+        design.get("coverUrl")
+        or design.get("coverImage")
+        or design.get("thumbnail")
+        or design.get("thumbnailUrl")
+        or (cover_meta.get("originalUrl") if cover_meta else "")
+    )
     author_avatar_local = author.get("avatarLocal") or ""
     author_rel = f"images/{author_avatar_local}" if author_avatar_local else ""
 
@@ -357,12 +705,12 @@ def build_meta(design: dict, summary: dict, design_images: List[dict], cover_met
         "slug": design.get("slug") or "",
         "title": design.get("title") or "",
         "titleTranslated": design.get("titleTranslated") or "",
-        "coverUrl": design.get("coverUrl") or cover_meta.get("originalUrl") if cover_meta else "",
+        "coverUrl": cover_url,
         "tags": design.get("tags") or [],
         "tagsOriginal": design.get("tagsOriginal") or [],
         "stats": stats,
         "cover": {
-            "url": cover_meta["originalUrl"] if cover_meta else "",
+            "url": cover_url if cover_meta is None else cover_meta["originalUrl"],
             "localName": cover_local,
             "relPath": cover_meta["relPath"] if cover_meta else "",
         },
@@ -1690,14 +2038,42 @@ def archive_model(url: str, cookie: str, download_dir: Path, logs_dir: Path, log
     log(logger, "请求头:", sess.headers)
     log(logger, "请求 Cookie 头(前 300 字符):", raw_cookie_header[:300])
 
-    # 直接使用 curl 获取页面，避免 requests 被 403/编码限制
-    html_text = fetch_html_with_curl(fetch_url, raw_cookie_header)
+    # 优先用 requests 拉取页面，失败再回退 curl
+    html_text = fetch_html_with_requests(sess, fetch_url, raw_cookie_header)
+    if not html_text:
+        html_text = fetch_html_with_curl(fetch_url, raw_cookie_header)
+    elif "__NEXT_DATA__" not in html_text and "__NUXT__" not in html_text:
+        log(logger, "requests 页面未包含 __NEXT_DATA__，尝试 curl 回退")
+        html_text = fetch_html_with_curl(fetch_url, raw_cookie_header)
 
-    data = extract_next_data(html_text)
-    design = data["props"]["pageProps"]["design"]
+    if "__NEXT_DATA__" not in html_text and "__NUXT__" not in html_text:
+        log(logger, "页面未包含 __NEXT_DATA__，前 300 字符:", (html_text or "")[:300])
+    if _is_cloudflare_challenge(html_text):
+        log(logger, "检测到 Cloudflare 验证页面，可能需要更新 cookie 中的 cf_clearance")
+
+    design = None
+    try:
+        data = extract_next_data(html_text)
+        design = extract_design_from_next_data(data)
+        if design is None:
+            log(logger, "未能从 __NEXT_DATA__ 定位 design，尝试 API 获取")
+    except Exception as e:
+        log(logger, "解析 __NEXT_DATA__ 失败，尝试 API 获取:", e)
+
+    if design is None:
+        api_host_hint = _extract_api_host(html_text)
+        design = fetch_design_from_api(sess, raw_cookie_header, fetch_url, api_host_hint=api_host_hint)
+
+    if design is None:
+        if _is_cloudflare_challenge(html_text):
+            raise RuntimeError("页面被 Cloudflare 验证拦截，请更新 cookie（含 cf_clearance）后重试")
+        raise RuntimeError("未能解析模型数据，请确认 cookie/页面结构")
+
     design["url"] = url
 
-    design_id = design.get("id")
+    design_id = design.get("id") or _parse_design_id(url)
+    if design_id is None:
+        raise RuntimeError("未获取到模型 ID")
     title = design.get("title") or "model"
     base_name = f"MW_{design_id}_{sanitize_filename(title)}"
     images_dir = out_root
@@ -1713,21 +2089,28 @@ def archive_model(url: str, cookie: str, download_dir: Path, logs_dir: Path, log
     summary = parse_summary(design, base_name, sess, images_dir)
     design_images, cover_meta = collect_design_images(design, sess, images_dir, base_name)
 
+    parsed_origin = urlparse(fetch_url)
+    origin = f"{parsed_origin.scheme}://{parsed_origin.netloc}" if parsed_origin.scheme and parsed_origin.netloc else "https://makerworld.com.cn"
+
     inst_list = []
-    for inst in design.get("instances", []) or []:
+    for inst in extract_instances(design):
+        inst_id = inst.get("id") or inst.get("instanceId")
+        if inst_id is None:
+            continue
         plates, pics = collect_instance_media(inst, sess, images_dir, base_name)
+        api_url = inst.get("apiUrl") or f"{origin}/api/v1/design-service/instance/{inst_id}/f3mf?type=download&fileType="
         name3mf, url3mf = fetch_instance_3mf(
             sess,
-            inst.get("id"),
+            inst_id,
             raw_cookie_header,
-            inst.get("apiUrl"),
+            api_url,
         )
         inst_list.append({
-            "id": inst.get("id"),
-            "profileId": inst.get("profileId"),
-            "title": inst.get("title"),
+            "id": inst_id,
+            "profileId": inst.get("profileId") or inst.get("profile_id") or inst.get("profileID"),
+            "title": inst.get("title") or inst.get("name"),
             "titleTranslated": inst.get("titleTranslated") or "",
-            "publishTime": inst.get("publishTime") or "",
+            "publishTime": inst.get("publishTime") or inst.get("publishedAt") or "",
             "downloadCount": inst.get("downloadCount") or 0,
             "printCount": inst.get("printCount") or 0,
             "prediction": inst.get("prediction"),
@@ -1742,7 +2125,7 @@ def archive_model(url: str, cookie: str, download_dir: Path, logs_dir: Path, log
             "summaryTranslated": inst.get("summaryTranslated") or "",
             "name": name3mf,
             "downloadUrl": url3mf,
-            "apiUrl": f"https://makerworld.com.cn/api/v1/design-service/instance/{inst.get('id')}/f3mf?type=download&fileType=",
+            "apiUrl": api_url,
         })
 
     meta = build_meta(design, summary, design_images, cover_meta, inst_list, author, base_name)
