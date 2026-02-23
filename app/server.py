@@ -107,9 +107,15 @@ def is_image_upload(upload: UploadFile) -> bool:
 
 
 def reset_tmp_dir(tmp_dir: Path):
-    if tmp_dir.exists():
-        shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
+    for item in tmp_dir.iterdir():
+        try:
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        except Exception as e:
+            logger.warning("清理临时子项失败: %s (%s)", item, e)
 
 
 def merge_dir_skip_existing(src: Path, dest: Path, log_obj: logging.Logger):
