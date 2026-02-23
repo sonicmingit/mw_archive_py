@@ -2278,6 +2278,8 @@ def archive_model(url: str, cookie: str, download_dir: Path, logs_dir: Path, log
 
     # 归档整理
     log_section("归档整理阶段")
+    work_dir = meta_path.parent / base_name
+    work_dir.mkdir(parents=True, exist_ok=True)
     try:
         rebuild_once(meta_path)
     except Exception as e:

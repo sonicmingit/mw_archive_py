@@ -28,6 +28,7 @@ from archiver import (
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 GALLERY_FLAGS_PATH = BASE_DIR / "gallery_flags.json"
+TMP_DIR = BASE_DIR / "tmp"
 DEFAULT_CONFIG = {
     "download_dir": "./data",
     "cookie_file": "./cookie.txt",
@@ -103,6 +104,51 @@ def is_image_upload(upload: UploadFile) -> bool:
         return True
     name = Path(upload.filename or "").name.lower()
     return name.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"))
+
+
+def reset_tmp_dir(tmp_dir: Path):
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+
+def merge_dir_skip_existing(src: Path, dest: Path, log_obj: logging.Logger):
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        target = dest / item.name
+        try:
+            if item.is_dir():
+                if target.exists() and target.is_dir():
+                    merge_dir_skip_existing(item, target, log_obj)
+                    try:
+                        item.rmdir()
+                    except Exception:
+                        pass
+                elif not target.exists():
+                    shutil.move(str(item), str(target))
+            else:
+                if target.exists():
+                    log_obj.info("目标已存在，跳过移动: %s", target)
+                    continue
+                shutil.move(str(item), str(target))
+        except Exception as e:
+            log_obj.warning("移动临时文件失败: %s -> %s (%s)", item, target, e)
+
+
+def finalize_tmp_archive(tmp_work_dir: Path, final_root: Path, log_obj: logging.Logger) -> Path:
+    final_root.mkdir(parents=True, exist_ok=True)
+    target = final_root / tmp_work_dir.name
+    if not tmp_work_dir.exists():
+        raise RuntimeError("临时目录不存在，无法转移结果")
+    if not target.exists():
+        shutil.move(str(tmp_work_dir), str(target))
+        return target
+    merge_dir_skip_existing(tmp_work_dir, target, log_obj)
+    try:
+        shutil.rmtree(tmp_work_dir)
+    except Exception:
+        pass
+    return target
 
 
 def parse_instance_descs(raw: str) -> List[str]:
@@ -644,8 +690,12 @@ async def api_archive(body: dict):
     if not cookie:
         raise HTTPException(400, "请先设置 cookie")
     try:
+        reset_tmp_dir(TMP_DIR)
         logger.info("使用 Cookie 片段: %s", cookie[:200])
-        result = archive_model(url, cookie, Path(CFG["download_dir"]), Path(CFG["logs_dir"]), logger)
+        result = archive_model(url, cookie, TMP_DIR, Path(CFG["logs_dir"]), logger)
+        tmp_work_dir = Path(result.get("work_dir") or "")
+        final_dir = finalize_tmp_archive(tmp_work_dir, Path(CFG["download_dir"]), logger)
+        result["work_dir"] = str(final_dir.resolve())
         return {"status": "ok", **result}
     except requests.HTTPError as e:
         # 输出更多上下文（状态码与前 300 字符）
@@ -660,6 +710,11 @@ async def api_archive(body: dict):
     except Exception as e:
         logger.exception("归档失败")
         raise HTTPException(500, f"归档失败: {e}")
+    finally:
+        try:
+            reset_tmp_dir(TMP_DIR)
+        except Exception as e:
+            logger.warning("清理临时目录失败: %s", e)
 
 
 @app.get("/api/logs/missing-3mf")
