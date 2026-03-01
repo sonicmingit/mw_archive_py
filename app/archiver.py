@@ -30,7 +30,7 @@ def log_section(title: str):
 
 
 def sanitize_filename(name: str) -> str:
-    return re.sub(r'[\\/:*?"<>|]', "_", name)
+    return re.sub(r'[\\/:*?"<>|]', "_", name).strip()
 
 
 def pick_ext_from_url(url: str, fallback: str = "jpg") -> str:
@@ -1477,569 +1477,56 @@ def format_date(date_str):
         return date_str or ""
 
 
-def build_instance_html(inst, assets):
-    title = inst.get("title") or inst.get("name") or f"实例 {inst.get('id')}"
-    publish = format_date(inst.get("publishTime") or "")
-    summary = inst.get("summary") or ""
-    dls = inst.get("downloadCount") or 0
-    prints = inst.get("printCount") or 0
-    weight = inst.get("weight") or ""
-    prediction = inst.get("prediction")
-    time_str = format_duration(prediction) if prediction else ""
-    plates = inst.get("plates") or []
-    plate_cnt = len(plates)
-    pictures = inst.get("pictures") or []
-    filaments = inst.get("instanceFilaments") or []
 
-    base_name = assets.get("base_name") or ""
+def build_index_html(meta: dict, assets: dict = None) -> str:
+    """基于 CSR 架构的离线 HTML 生成器，读取 model.html 骨架并注入数据和源码。"""
+    app_dir = Path(__file__).parent
+    template_path = app_dir / "templates" / "model.html"
+    variables_css_path = app_dir / "static" / "css" / "variables.css"
+    components_css_path = app_dir / "static" / "css" / "components.css"
+    model_css_path = app_dir / "static" / "css" / "model.css"
+    model_js_path = app_dir / "static" / "js" / "model.js"
 
-    def local_name(rel):
-        if not rel:
-            return ""
-        try:
-            name = Path(rel).name
-        except Exception:
-            name = rel
-        return strip_prefix(name, base_name) if base_name else name
+    with template_path.open("r", encoding="utf-8") as f:
+        html = f.read()
 
-    file_name = pick_instance_filename(inst, inst.get("name") or "")
-    dl_href_local = "./instances/" + file_name if file_name else ""
+    with variables_css_path.open("r", encoding="utf-8") as f:
+        variables_css = f.read()
 
-    chips = []
-    for f in filaments:
-        typ = f.get("type") or ""
-        used_g = f.get("usedG") or f.get("usedg") or ""
-        col = f.get("color") or ""
-        dot = f'<span class="color-dot" style="background:{col}"></span>' if col else ""
-        chips.append(f"{dot}{typ} {used_g}g".strip())
+    with components_css_path.open("r", encoding="utf-8") as f:
+        components_css = f.read()
 
-    chips_html = "\n".join(f'<span class="chip">{c}</span>' for c in chips)
+    import re
+    with model_css_path.open("r", encoding="utf-8") as f:
+        model_css = f.read()
+        model_css = re.sub(r"@import\s+url\(['\"]?/static/css/(variables|components)\.css['\"]?\);?", "", model_css)
 
-    plates_html = ""
-    if plates:
-        blocks = []
-        for p in plates:
-            th = local_name(p.get("thumbnailRelPath") or "")
-            pred = format_duration(p.get("prediction")) if p.get("prediction") else ""
-            w = p.get("weight")
-            fs = p.get("filaments") or []
-            fs_html = " ".join(f'{f.get("type")} {f.get("usedG","")}g' for f in fs if f)
-            blocks.append(
-                f'<div class="plate-item"><img class="zoomable" src="{("./images/"+th) if th else ""}" alt="plate {p.get("index")}">'
-                f'<div>Plate {p.get("index")}</div>'
-                f'<div>{pred} {str(w)+" g" if w else ""}</div>'
-                f'<div>{fs_html}</div>'
-                f'</div>'
-            )
-        plates_html = '<div class="plates">' + "".join(blocks) + "</div>"
+    with model_js_path.open("r", encoding="utf-8") as f:
+        model_js = f.read()
 
-    pics_html = ""
-    if pictures:
-        imgs = []
-        for pic in pictures:
-            rel = local_name(pic.get("relPath") or "")
-            if rel:
-                imgs.append(f'<img class="inst-thumb zoomable" src="./images/{rel}" alt="pic {pic.get("index")}">')
-        if imgs:
-            pics_html = '<div class="thumbs">' + "".join(imgs) + "</div>"
-
-    hide_inst_stats = bool(assets.get("hide_inst_stats"))
-    stats_html = ""
-    if not hide_inst_stats:
-        stats_html = f'<div class="inst-meta"><span class="meta-item" title="下载次数">⬇️ {dls}</span><span class="meta-item" title="打印次数">🖨️ {prints}</span><span class="meta-item" title="预计打印时间">⏱️ {time_str}</span><span class="meta-item" title="重量">⚖️ {weight} g</span></div>'
-
-    return f"""
-<div class="inst-card">
-  <div class="inst-meta" style="flex-wrap: wrap; justify-content: space-between; margin-bottom: 8px;">
-    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
-      <strong>{title}</strong>
-      {"<span class='meta-badge' title='打印盘数'>🧩 "+str(plate_cnt)+" 盘</span>" if plate_cnt else ""}
-      {"<a class='inst-btn inst-local' href='"+dl_href_local+"' target='_blank' rel='noreferrer'>📥 下载</a>" if dl_href_local else ""}
-    </div>
-    {"<div>发布于 "+publish+"</div>" if publish else ""}
-  </div>
-  {stats_html}
-  {"<div class='chips'>"+chips_html+"</div>" if chips_html else ""}
-  {pics_html}
-  {plates_html}
-  {"<div style='margin-top:8px;font-size:13px;color:#444;'>"+summary+"</div>" if summary else ""}
-</div>
-""".strip()
-
-
-def build_index_html(meta: dict, assets: dict) -> str:
-    title = meta.get("title", "")
-    url = meta.get("url", "")
-    tags = meta.get("tags") or meta.get("tagsOriginal") or []
-    stats = normalize_stats(meta)
-    summary_meta = meta.get("summary") or {}
-    summary_html_raw = summary_meta.get("html") or summary_meta.get("raw") or ""
-    summary_html = re.sub(
-        r'<div[^>]*class="[^"]*translated-text[^"]*"[^>]*>.*?</div>',
-        "",
-        summary_html_raw,
-        flags=re.S | re.I,
+    # 内联 CSS
+    html = re.sub(
+        r'<link\s+rel="stylesheet"\s+href="/static/css/variables\.css[^"]*">',
+        lambda _: f"<style>\n{variables_css}\n</style>",
+        html
     )
-    images = normalize_images(meta)
-    author = normalize_author(meta)
-
-    like_count = stats.get("likes") or 0
-    fav_count = stats.get("favorites") or 0
-    dl_count = stats.get("downloads") or 0
-    print_count = stats.get("prints") or 0
-    view_count = stats.get("views") or 0
-
-    tags_html = ""
-    if tags:
-        tags_html = "\n".join(
-            f'<span>{t}</span>' for t in tags
-        )
-
-    design_imgs = assets.get("design_files") or images.get("design") or []
-    thumbs_html = ""
-    carousel_html = ""
-    if design_imgs:
-        img_tags = "\n".join(
-            f'<img src="./images/{fn}" alt="design image">'
-            for fn in design_imgs
-        )
-        thumbs_html = "\n".join(
-            f'<img data-idx="{i}" src="./images/{fn}" alt="thumb {i+1}">'
-            for i, fn in enumerate(design_imgs)
-        )
-        carousel_html = f"""
-<div class="carousel" id="designCarousel">
-  <div class="carousel-track">
-    {img_tags}
-  </div>
-  <button class="carousel-btn prev" type="button">◀</button>
-  <button class="carousel-btn next" type="button">▶</button>
-</div>
-<div class="thumbs" id="designThumbs">
-  {thumbs_html}
-</div>
-""".strip()
-
-    hero_src = assets.get("hero") or "screenshot.png"
-    avatar_src = assets.get("avatar")
-    collected_date = assets.get("collected_date", "")
-    collected_div = f'<div class="collect-date">采集日期：{collected_date}</div>' if collected_date else ""
-
-    author_name = author.get("name", "")
-    author_url = author.get("url", "")
-
-    stats_fragments = [f"👍 {like_count}", f"⭐ {fav_count}", f"⬇️ {dl_count}"]
-    if print_count:
-        stats_fragments.append(f"🖨️ {print_count}")
-    if view_count:
-        stats_fragments.append(f"👀 {view_count}")
-    stats_line = "　".join(stats_fragments)
-    hide_stats = bool(assets.get("hide_stats")) or meta.get("source") == "others"
-    stats_html = f'<div class="stats">\n    {stats_line}\n  </div>' if not hide_stats else ""
-
-    origin_link = f'<a class="origin-link" href="{url}" target="_blank" rel="noreferrer">原文链接</a>' if url else ""
-    avatar_html = f'<img class="avatar" src="{avatar_src}" alt="avatar">' if avatar_src else ""
-    author_display = (
-        f'<a href="{author_url}" target="_blank" rel="noreferrer">{author_name}</a>'
-        if author_url else author_name
+    html = re.sub(
+        r'<link\s+rel="stylesheet"\s+href="/static/css/model\.css[^"]*">',
+        lambda _: f"<style>\n{components_css}\n{model_css}\n</style>",
+        html
     )
 
-    instances = meta.get("instances") or []
-    inst_html = ""
-    if instances:
-        blocks = []
-        for inst in instances:
-            blocks.append(build_instance_html(inst, assets))
-        inst_html = "\n".join(blocks)
+    # 注入离线 Meta 和 JS (使用 JSON 安全的直接注入)
+    import json
+    meta_json_str = json.dumps(meta, ensure_ascii=False)
+    meta_json_str = meta_json_str.replace("</script>", "<\\/script>")
+    injection_script = f"\n<script>\nwindow.__OFFLINE_META__ = {meta_json_str};\n</script>\n"
+    js_replacement = f"{injection_script}<script>\n{model_js}\n</script>"
+    
+    html, count = re.subn(r'<script\s+src="/static/js/model\.js[^"]*"(?:\s+defer)?></script>', lambda _: js_replacement, html)
+    if count == 0:
+        html = html.replace("</body>", f"{js_replacement}\n</body>")
 
-    html = f"""<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8">
-<title>{title}</title>
-<link rel="stylesheet" href="./style.css">
-</head>
-<body>
-<div class="container">
-
-  <h1 class="title">
-    {title}
-    {origin_link}
-  </h1>
-
-  <div class="author">
-    {avatar_html}
-    作者：
-    {author_display}
-  </div>
-
-  <img class="hero" src="{hero_src}" alt="screenshot">
-  {collected_div}
-
-  {stats_html}
-
-  <div class="section-title">标签</div>
-  <div class="tag-list">
-    {tags_html}
-  </div>
-
-  <div class="section-title">打印配置 / 实例</div>
-  <div class="instances">
-    {inst_html}
-  </div>
-
-  <div class="section-title">简介</div>
-
-  <!-- 设计图片轮播 -->
-  {carousel_html}
-
-  <!-- 描述内容（带本地图片路径） -->
-  <div class="summary">
-    {summary_html}
-  </div>
-
-  <div class="section-title">附件</div>
-  <div class="attachments">
-    <div class="attach-upload">
-      <input type="file" id="attachInput" multiple>
-      <button class="attach-btn" type="button" id="attachUploadBtn">上传附件</button>
-      <span class="attach-msg" id="attachMsg"></span>
-    </div>
-    <ul class="attach-list" id="attachList"></ul>
-  </div>
-
-  <div class="section-title">打印成品</div>
-  <div class="printed">
-    <div class="attach-upload">
-      <input type="file" id="printedInput" multiple accept="image/*">
-      <button class="attach-btn" type="button" id="printedUploadBtn">上传图片</button>
-      <span class="attach-msg" id="printedMsg"></span>
-    </div>
-    <div class="printed-grid" id="printedList"></div>
-  </div>
-
-</div>
-
-<div class="lightbox" id="imgLightbox">
-  <img src="" alt="preview">
-</div>
-
-<script>
-(function() {{
-  const carousel = document.getElementById('designCarousel');
-  if (!carousel) return;
-  const track = carousel.querySelector('.carousel-track');
-  const slides = carousel.querySelectorAll('img');
-  const prevBtn = carousel.querySelector('.prev');
-  const nextBtn = carousel.querySelector('.next');
-  const thumbs = document.querySelectorAll('#designThumbs img');
-  if (!track || slides.length === 0) return;
-
-  let index = 0;
-  function update() {{
-    const width = carousel.clientWidth;
-    track.style.transform = 'translateX(' + (-index * width) + 'px)';
-    thumbs.forEach((t, i) => {{
-      if (i === index) t.classList.add('active');
-      else t.classList.remove('active');
-    }});
-  }}
-
-  function go(delta) {{
-    index = (index + delta + slides.length) % slides.length;
-    update();
-  }}
-
-  window.addEventListener('resize', update);
-  prevBtn.addEventListener('click', function() {{ go(-1); }});
-  nextBtn.addEventListener('click', function() {{ go(1); }});
-  thumbs.forEach((t, i) => {{
-    t.addEventListener('click', function() {{
-      index = i;
-      update();
-    }});
-  }});
-
-  update();
-}})();
-
-(function() {{
-  const overlay = document.getElementById('imgLightbox');
-  const overlayImg = overlay ? overlay.querySelector('img') : null;
-  if (!overlay || !overlayImg) return;
-  document.addEventListener('click', (event) => {{
-    const target = event.target;
-    if (!(target instanceof HTMLImageElement)) return;
-    if (!target.classList.contains('zoomable')) return;
-    overlayImg.src = target.src;
-    overlay.classList.add('show');
-  }});
-  overlay.addEventListener('click', () => {{
-    overlay.classList.remove('show');
-    overlayImg.src = '';
-  }});
-}})();
-
-(function() {{
-  // 动态切换实例本地/远程下载按钮：若本地文件存在则优先显示下载，否则显示原始地址
-  const cards = document.querySelectorAll('.inst-card');
-  cards.forEach((card) => {{
-    const localBtn = card.querySelector('.inst-local');
-    const remoteBtn = card.querySelector('.inst-remote');
-    if (!localBtn || !remoteBtn) return;
-    const localHref = localBtn.getAttribute('data-href');
-    const showLocal = () => {{
-      localBtn.classList.remove('hidden');
-      remoteBtn.classList.add('hidden');
-    }};
-    const showRemote = () => {{
-      localBtn.classList.add('hidden');
-      remoteBtn.classList.remove('hidden');
-    }};
-    // file:// 场景下 HEAD/GET 会被 CORS 拦截，直接按是否有本地路径决定
-    if (location.protocol === 'file:') {{
-      if (localHref && localHref !== '#') showLocal();
-      else showRemote();
-      return;
-    }}
-    if (!localHref || localHref === '#') {{
-      showRemote();
-      return;
-    }}
-    fetch(localHref, {{ method: 'HEAD' }})
-      .then((res) => {{
-        if (res.ok) showLocal();
-        else showRemote();
-      }})
-      .catch(() => showRemote());
-  }});
-}})();
-
-(function() {{
-  const listEl = document.getElementById('attachList');
-  const msgEl = document.getElementById('attachMsg');
-  const inputEl = document.getElementById('attachInput');
-  const btnEl = document.getElementById('attachUploadBtn');
-  if (!listEl) return;
-
-  function setMsg(text, isError) {{
-    if (!msgEl) return;
-    msgEl.textContent = text || '';
-    if (isError) msgEl.classList.add('error');
-    else msgEl.classList.remove('error');
-  }}
-
-  function getModelDir() {{
-    const path = window.location.pathname || '';
-    const parts = path.split('/').filter(Boolean);
-    const filesIdx = parts.indexOf('files');
-    if (filesIdx >= 0 && parts.length > filesIdx + 1) return decodeURIComponent(parts[filesIdx + 1]);
-    if (parts.length >= 2) return decodeURIComponent(parts[parts.length - 2]);
-    return '';
-  }}
-
-  const modelDir = getModelDir();
-  if (!modelDir) {{
-    setMsg('无法识别模型目录', true);
-    return;
-  }}
-
-  function renderList(files) {{
-    listEl.innerHTML = '';
-    if (!files || files.length === 0) {{
-      const li = document.createElement('li');
-      li.className = 'attach-empty';
-      li.textContent = '暂无附件';
-      listEl.appendChild(li);
-      return;
-    }}
-    files.forEach((name) => {{
-      const li = document.createElement('li');
-      const link = document.createElement('a');
-      link.href = './file/' + encodeURIComponent(name);
-      link.textContent = name;
-      link.setAttribute('download', name);
-      li.appendChild(link);
-      listEl.appendChild(li);
-    }});
-  }}
-
-  function loadList() {{
-    if (location.protocol === 'file:') {{
-      renderList([]);
-      setMsg('请通过本地服务打开页面以查看附件列表', true);
-      return;
-    }}
-    fetch('/api/models/' + encodeURIComponent(modelDir) + '/attachments')
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then((data) => {{
-        renderList((data && data.files) || []);
-        setMsg('');
-      }})
-      .catch(() => {{
-        renderList([]);
-        setMsg('附件列表加载失败', true);
-      }});
-  }}
-
-  loadList();
-
-  if (!btnEl || !inputEl) return;
-  btnEl.addEventListener('click', async () => {{
-    const files = inputEl.files ? Array.from(inputEl.files) : [];
-    if (!files.length) {{
-      setMsg('请选择附件', true);
-      return;
-    }}
-    if (location.protocol === 'file:') {{
-      setMsg('请通过本地服务打开页面以便上传', true);
-      return;
-    }}
-    btnEl.disabled = true;
-    let success = 0;
-    let failed = 0;
-    setMsg(`上传中... (0/${{files.length}})`);
-    for (const file of files) {{
-      const fd = new FormData();
-      fd.append('file', file);
-      try {{
-        const res = await fetch('/api/models/' + encodeURIComponent(modelDir) + '/attachments', {{
-          method: 'POST',
-          body: fd,
-        }});
-        if (!res.ok) throw new Error('upload failed');
-        success += 1;
-      }} catch (e) {{
-        failed += 1;
-      }}
-      setMsg(`上传中... (${{success + failed}}/${{files.length}})`);
-    }}
-    inputEl.value = '';
-    loadList();
-    if (failed === 0) setMsg('上传成功');
-    else if (success === 0) setMsg('上传失败', true);
-    else setMsg(`部分成功 ${{success}}/${{files.length}}`, true);
-    btnEl.disabled = false;
-  }});
-}})();
-
-(function() {{
-  const listEl = document.getElementById('printedList');
-  const msgEl = document.getElementById('printedMsg');
-  const inputEl = document.getElementById('printedInput');
-  const btnEl = document.getElementById('printedUploadBtn');
-  if (!listEl) return;
-
-  function setMsg(text, isError) {{
-    if (!msgEl) return;
-    msgEl.textContent = text || '';
-    if (isError) msgEl.classList.add('error');
-    else msgEl.classList.remove('error');
-  }}
-
-  function getModelDir() {{
-    const path = window.location.pathname || '';
-    const parts = path.split('/').filter(Boolean);
-    const filesIdx = parts.indexOf('files');
-    if (filesIdx >= 0 && parts.length > filesIdx + 1) return decodeURIComponent(parts[filesIdx + 1]);
-    if (parts.length >= 2) return decodeURIComponent(parts[parts.length - 2]);
-    return '';
-  }}
-
-  const modelDir = getModelDir();
-  if (!modelDir) {{
-    setMsg('无法识别模型目录', true);
-    return;
-  }}
-
-  function renderList(files) {{
-    listEl.innerHTML = '';
-    if (!files || files.length === 0) {{
-      const empty = document.createElement('div');
-      empty.className = 'printed-empty';
-      empty.textContent = '暂无图片';
-      listEl.appendChild(empty);
-      return;
-    }}
-    files.forEach((name) => {{
-      const item = document.createElement('div');
-      item.className = 'printed-item';
-      const img = document.createElement('img');
-      img.className = 'zoomable';
-      img.src = './printed/' + encodeURIComponent(name);
-      img.alt = name;
-      const caption = document.createElement('div');
-      caption.className = 'printed-caption';
-      caption.textContent = name;
-      item.appendChild(img);
-      item.appendChild(caption);
-      listEl.appendChild(item);
-    }});
-  }}
-
-  function loadList() {{
-    if (location.protocol === 'file:') {{
-      renderList([]);
-      setMsg('请通过本地服务打开页面以查看图片列表', true);
-      return;
-    }}
-    fetch('/api/models/' + encodeURIComponent(modelDir) + '/printed')
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then((data) => {{
-        renderList((data && data.files) || []);
-        setMsg('');
-      }})
-      .catch(() => {{
-        renderList([]);
-        setMsg('图片列表加载失败', true);
-      }});
-  }}
-
-  loadList();
-
-  if (!btnEl || !inputEl) return;
-  btnEl.addEventListener('click', async () => {{
-    const files = inputEl.files ? Array.from(inputEl.files) : [];
-    if (!files.length) {{
-      setMsg('请选择图片', true);
-      return;
-    }}
-    if (location.protocol === 'file:') {{
-      setMsg('请通过本地服务打开页面以便上传', true);
-      return;
-    }}
-    btnEl.disabled = true;
-    let success = 0;
-    let failed = 0;
-    setMsg(`上传中... (0/${{files.length}})`);
-    for (const file of files) {{
-      const fd = new FormData();
-      fd.append('file', file);
-      try {{
-        const res = await fetch('/api/models/' + encodeURIComponent(modelDir) + '/printed', {{
-          method: 'POST',
-          body: fd,
-        }});
-        if (!res.ok) throw new Error('upload failed');
-        success += 1;
-      }} catch (e) {{
-        failed += 1;
-      }}
-      setMsg(`上传中... (${{success + failed}}/${{files.length}})`);
-    }}
-    inputEl.value = '';
-    loadList();
-    if (failed === 0) setMsg('上传成功');
-    else if (success === 0) setMsg('上传失败', true);
-    else setMsg(`部分成功 ${{success}}/${{files.length}}`, true);
-    btnEl.disabled = false;
-  }});
-}})();
-</script>
-
-</body>
-</html>
-"""
     return html
 
 

@@ -20,6 +20,9 @@
 
     /** 构建模型文件目录下的相对资源 URL */
     function fileUrl(modelDir, relPath) {
+        if (window.__OFFLINE_META__) {
+            return './' + relPath;
+        }
         return '/files/' + encodeURIComponent(modelDir) + '/' + relPath;
     }
 
@@ -694,17 +697,28 @@
     // ============ 主入口 ============
 
     async function main() {
-        MODEL_DIR = getModelDir();
-        if (!MODEL_DIR) {
-            showError('无法从 URL 解析模型目录');
-            return;
+        var meta;
+        if (window.__OFFLINE_META__) {
+            meta = window.__OFFLINE_META__;
+            MODEL_DIR = meta.dir || '';
+        } else {
+            MODEL_DIR = getModelDir();
+            if (!MODEL_DIR) {
+                showError('无法从 URL 解析模型目录');
+                return;
+            }
+
+            try {
+                var res = await fetch('/api/v2/models/' + encodeURIComponent(MODEL_DIR) + '/meta');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                meta = await res.json();
+            } catch (e) {
+                showError('请求模型数据失败：' + e.message);
+                return;
+            }
         }
 
         try {
-            var res = await fetch('/api/v2/models/' + encodeURIComponent(MODEL_DIR) + '/meta');
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            var meta = await res.json();
-
             var images = normalizeImages(meta);
 
             // 渲染各区域
@@ -726,6 +740,14 @@
             initLightbox();
             initAttachments();
             initPrinted();
+
+            // 离线环境隐藏上传入口区块
+            if (window.__OFFLINE_META__) {
+                var attachUpload = document.getElementById('attachUploadBtn');
+                var printedUpload = document.getElementById('printedUploadBtn');
+                if (attachUpload && attachUpload.parentElement) attachUpload.parentElement.style.display = 'none';
+                if (printedUpload && printedUpload.parentElement) printedUpload.parentElement.style.display = 'none';
+            }
         } catch (e) {
             showError('加载模型数据失败：' + e.message);
         }
