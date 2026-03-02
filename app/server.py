@@ -58,6 +58,17 @@ def strip_html(value: str) -> str:
     return _TAG_RE.sub("", value).strip()
 
 
+def resolve_collect_iso(data: dict, meta_path: Path) -> str:
+    ts = data.get("collectDate") if isinstance(data, dict) else None
+    try:
+        ts_int = int(ts)
+        if ts_int > 0:
+            return datetime.fromtimestamp(ts_int).isoformat()
+    except Exception:
+        pass
+    return datetime.fromtimestamp(meta_path.stat().st_mtime).isoformat()
+
+
 def resolve_model_dir(model_dir: str) -> Path:
     if not model_dir or "/" in model_dir or "\\" in model_dir:
         raise HTTPException(400, "model_dir 无效")
@@ -784,7 +795,7 @@ def scan_gallery(cfg) -> List[dict]:
                 if ts and (published_at is None or ts < published_at):
                     published_at = ts
             author = data.get("author") or {}
-            collected_at = datetime.fromtimestamp(meta.stat().st_mtime).isoformat()
+            collected_at = resolve_collect_iso(data, meta)
             items.append({
                 "baseName": data.get("baseName") or d.name,
                 "title": data.get("title"),
@@ -820,7 +831,7 @@ def scan_gallery(cfg) -> List[dict]:
             instances = data.get("instances") or []
             published_at = None
             author = data.get("author") or {}
-            collected_at = datetime.fromtimestamp(meta.stat().st_mtime).isoformat()
+            collected_at = resolve_collect_iso(data, meta)
             items.append({
                 "baseName": data.get("baseName") or d.name,
                 "title": data.get("title"),
