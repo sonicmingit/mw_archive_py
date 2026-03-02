@@ -1477,6 +1477,22 @@ def format_date(date_str):
         return date_str or ""
 
 
+def _escape_json_for_inline_script(json_text: str) -> str:
+    """
+    将 JSON 文本安全注入 <script>，避免 </script>（任意大小写变体）截断脚本。
+    """
+    if not json_text:
+        return "{}"
+    return (
+        json_text
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 
 def build_index_html(meta: dict, assets: dict = None) -> str:
     """基于 CSR 架构的离线 HTML 生成器，读取 model.html 骨架并注入数据和源码。"""
@@ -1499,33 +1515,64 @@ def build_index_html(meta: dict, assets: dict = None) -> str:
     import re
     with model_css_path.open("r", encoding="utf-8") as f:
         model_css = f.read()
-        model_css = re.sub(r"@import\s+url\(['\"]?/static/css/(variables|components)\.css['\"]?\);?", "", model_css)
+        model_css = re.sub(
+            r"@import\s+url\(['\"]?/static/css/(?:variables|components)\.css[^)]*\)\s*;?",
+            "",
+            model_css,
+            flags=re.I,
+        )
 
     with model_js_path.open("r", encoding="utf-8") as f:
         model_js = f.read()
 
-    # 内联 CSS
-    html = re.sub(
-        r'<link\s+rel="stylesheet"\s+href="/static/css/variables\.css[^"]*">',
-        lambda _: f"<style>\n{variables_css}\n</style>",
-        html
+    # 内联 CSS（宽松匹配属性顺序/单双引号）
+    variables_inline = f"<style>\n{variables_css}\n</style>"
+    model_inline = f"<style>\n{components_css}\n{model_css}\n</style>"
+
+    html, var_count = re.subn(
+        r'<link[^>]*href=["\']/static/css/variables\.css[^"\']*["\'][^>]*>',
+        lambda _: variables_inline,
+        html,
+        count=1,
+        flags=re.I,
     )
-    html = re.sub(
-        r'<link\s+rel="stylesheet"\s+href="/static/css/model\.css[^"]*">',
-        lambda _: f"<style>\n{components_css}\n{model_css}\n</style>",
-        html
+    if var_count == 0:
+        html, _ = re.subn(r"</head>", lambda _: variables_inline + "\n</head>", html, count=1, flags=re.I)
+
+    html, model_count = re.subn(
+        r'<link[^>]*href=["\']/static/css/model\.css[^"\']*["\'][^>]*>',
+        lambda _: model_inline,
+        html,
+        count=1,
+        flags=re.I,
     )
+    if model_count == 0:
+        html, _ = re.subn(r"</head>", lambda _: model_inline + "\n</head>", html, count=1, flags=re.I)
 
     # 注入离线 Meta 和 JS (使用 JSON 安全的直接注入)
     import json
     meta_json_str = json.dumps(meta, ensure_ascii=False)
-    meta_json_str = meta_json_str.replace("</script>", "<\\/script>")
+    meta_json_str = _escape_json_for_inline_script(meta_json_str)
     injection_script = f"\n<script>\nwindow.__OFFLINE_META__ = {meta_json_str};\n</script>\n"
     js_replacement = f"{injection_script}<script>\n{model_js}\n</script>"
-    
-    html, count = re.subn(r'<script\s+src="/static/js/model\.js[^"]*"(?:\s+defer)?></script>', lambda _: js_replacement, html)
+
+    html, count = re.subn(
+        r'<script[^>]*src=["\']/static/js/model\.js[^"\']*["\'][^>]*>\s*</script>',
+        lambda _: js_replacement,
+        html,
+        count=1,
+        flags=re.I,
+    )
     if count == 0:
-        html = html.replace("</body>", f"{js_replacement}\n</body>")
+        html, body_count = re.subn(
+            r"</body>",
+            lambda _: f"{js_replacement}\n</body>",
+            html,
+            count=1,
+            flags=re.I,
+        )
+        if body_count == 0:
+            html += js_replacement
 
     return html
 
