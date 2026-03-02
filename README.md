@@ -71,6 +71,10 @@ python server.py
 - 配置页：`http://127.0.0.1:8000/config`
 
 ## Docker 启动
+先创建目录和txt
+mkdir -p ./app/{data,logs}
+touch ./app/cookie.txt
+
 ```bash
 docker run -d \
   --name mw-archiver \
