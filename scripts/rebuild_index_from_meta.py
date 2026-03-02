@@ -211,8 +211,22 @@ def write_local_indexes(model_dir: Path):
         (d / "_index.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def inject_offline_files(meta: dict, model_dir: Path) -> dict:
+def ensure_collect_date(meta: dict, fallback_ts: int) -> dict:
     out = dict(meta or {})
+    try:
+        ts = int(out.get("collectDate"))
+    except Exception:
+        ts = 0
+    if ts <= 0:
+        out["collectDate"] = int(fallback_ts)
+    else:
+        out["collectDate"] = ts
+    return out
+
+
+def inject_offline_files(meta: dict, model_dir: Path) -> dict:
+    fallback_ts = int((model_dir / "meta.json").stat().st_mtime)
+    out = ensure_collect_date(meta or {}, fallback_ts)
     out["offlineFiles"] = {
         "attachments": list_dir_files(model_dir / "file", image_only=False),
         "printed": list_dir_files(model_dir / "printed", image_only=True),

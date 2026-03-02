@@ -818,6 +818,7 @@ def extract_instances(design: dict) -> List[dict]:
 
 
 def build_meta(design: dict, summary: dict, design_images: List[dict], cover_meta: Optional[dict], instances: List[dict], author: dict, base_name: str):
+    collect_ts = int(datetime.now().timestamp())
     update_time = datetime.now().isoformat()
     counts = design.get("counts") or {}
     stats = {
@@ -876,6 +877,7 @@ def build_meta(design: dict, summary: dict, design_images: List[dict], cover_met
             "text": summary.get("text", ""),
         },
         "instances": instances,
+        "collectDate": collect_ts,
         "offlineFiles": {
             "attachments": [],
             "printed": [],

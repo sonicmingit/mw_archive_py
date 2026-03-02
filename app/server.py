@@ -135,14 +135,31 @@ def read_json_file(path: Path, default):
     return default
 
 
+def ensure_collect_date(data: dict, fallback_ts: int) -> dict:
+    if not isinstance(data, dict):
+        return data
+    ts = data.get("collectDate")
+    try:
+        ts_int = int(ts)
+    except Exception:
+        ts_int = 0
+    if ts_int <= 0:
+        data["collectDate"] = int(fallback_ts)
+    else:
+        data["collectDate"] = ts_int
+    return data
+
+
 def sync_offline_files_to_meta(model_dir: Path, attachments: Optional[List[str]] = None, printed: Optional[List[str]] = None):
     meta_path = model_dir / "meta.json"
     if not meta_path.exists():
         return
 
+    fallback_ts = int(meta_path.stat().st_mtime)
     data = read_json_file(meta_path, {})
     if not isinstance(data, dict):
         return
+    ensure_collect_date(data, fallback_ts)
 
     if attachments is None:
         attachments = list_files_in_dir(model_dir / "file", image_only=False)
@@ -297,8 +314,10 @@ def rebuild_archived_pages(force: bool = False, backup: bool = False, dry_run: b
         processed += 1
 
         try:
+            fallback_ts = int(meta_path.stat().st_mtime)
             meta_raw = json.loads(meta_path.read_text(encoding="utf-8"))
             meta = dict(meta_raw)
+            ensure_collect_date(meta, fallback_ts)
             meta["offlineFiles"] = {
                 "attachments": list_files_in_dir(model_dir / "file", image_only=False),
                 "printed": list_files_in_dir(model_dir / "printed", image_only=True),
@@ -1290,6 +1309,7 @@ async def api_manual_import(
         ],
         "summary": summary_payload,
         "instances": instances,
+        "collectDate": int(datetime.now().timestamp()),
         "update_time": datetime.now().isoformat(),
         "generatedAt": Path().absolute().as_posix(),
         "note": "本文件包含结构化数据与打印配置详情。",
@@ -1358,7 +1378,7 @@ async def api_v2_model_meta(model_dir: str):
                 "attachments": list_files_in_dir(target / "file", image_only=False),
                 "printed": list_files_in_dir(target / "printed", image_only=True),
             }
-        data["collectDate"] = int(meta_path.stat().st_mtime)
+        ensure_collect_date(data, int(meta_path.stat().st_mtime))
         if not data.get("update_time"):
             data["update_time"] = datetime.fromtimestamp(meta_path.stat().st_mtime).isoformat()
         return data
