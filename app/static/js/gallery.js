@@ -851,8 +851,8 @@ if (lightbox) {
   if (!btn) return;
   function syncBtn() {
     btn.classList.toggle('active', useV2);
-    btn.title = useV2 ? '当前 V2 页面（点击切换为 V1）' : '当前 V1 页面（点击切换为 V2）';
-    btn.querySelector('.toggle-label').textContent = useV2 ? 'V2' : 'V1';
+    btn.title = useV2 ? '当前在线页面（点击切换为本地）' : '当前本地页面（点击切换为在线）';
+    btn.querySelector('.toggle-label').textContent = useV2 ? '在线' : '本地';
   }
   syncBtn();
   btn.addEventListener('click', () => {
