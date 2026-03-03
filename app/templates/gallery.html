@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/static/css/reset.css">
   <link rel="stylesheet" href="/static/css/components.css?v=1.3">
   <link rel="stylesheet" href="/static/css/gallery.css?v=1.3">
-  <link rel="stylesheet" href="/static/css/manual_import.css">
+  <link rel="stylesheet" href="/static/css/manual_import.css?v=5.3">
 </head>
 
 <body>
@@ -145,7 +145,6 @@
           <div class="manual-inline">
             <input type="file" id="manual3mfPicker" accept=".3mf" multiple>
             <button class="manual-btn" type="button" id="manualParse3mf">识别并填充</button>
-            <span class="manual-help">优先读取 Auxiliaries 图片，不存在时自动回退 Metadata</span>
           </div>
           <div id="manualParsedPreview" class="manual-draft-preview hidden">
             <div class="manual-draft-head">
@@ -153,6 +152,16 @@
               <div class="manual-draft-meta">
                 <div id="manualDraftTitle" class="manual-draft-title"></div>
                 <div id="manualDraftDesigner" class="manual-draft-designer"></div>
+              </div>
+            </div>
+            <div class="manual-draft-extra">
+              <div>
+                <div class="manual-draft-extra-title">识别到的设计图片</div>
+                <div class="manual-draft-gallery" id="manualDraftDesignList"></div>
+              </div>
+              <div>
+                <div class="manual-draft-extra-title">识别到的附件</div>
+                <div class="manual-draft-files" id="manualDraftAttachmentList"></div>
               </div>
             </div>
             <div class="manual-draft-instances" id="parsedInstanceList"></div>
@@ -174,7 +183,21 @@
         </div>
         <div class="manual-row">
           <label>模型介绍</label>
-          <textarea name="summary" rows="4" placeholder="填写模型介绍..."></textarea>
+          <div class="manual-rich-toolbar" role="toolbar" aria-label="模型介绍编辑器">
+            <button class="manual-rich-btn" type="button" data-rich-cmd="bold"><b>B</b></button>
+            <button class="manual-rich-btn" type="button" data-rich-cmd="italic"><i>I</i></button>
+            <button class="manual-rich-btn" type="button" data-rich-cmd="underline"><u>U</u></button>
+            <button class="manual-rich-btn" type="button" data-rich-cmd="insertUnorderedList">• 列表</button>
+            <button class="manual-rich-btn" type="button" data-rich-cmd="insertOrderedList">1. 列表</button>
+            <button class="manual-rich-btn" type="button" data-rich-cmd="formatBlock"
+              data-rich-value="blockquote">引用</button>
+            <button class="manual-rich-btn" type="button" data-rich-cmd="removeFormat">清除格式</button>
+          </div>
+          <div id="manualSummaryEditor" class="manual-rich-editor" contenteditable="true" data-placeholder="填写模型介绍...">
+          </div>
+          <input type="hidden" name="summary" id="manualSummaryText">
+          <textarea name="summary_html" id="manualSummaryHtml" hidden></textarea>
+          <div class="manual-help">支持加粗、斜体、列表、引用；保存时会同时保留富文本和纯文本</div>
         </div>
         <div class="manual-row">
           <label>标签 (空格分隔)</label>
@@ -192,6 +215,7 @@
           <label>实例文件</label>
           <div class="manual-inline">
             <button class="manual-btn" type="button" id="manualAddInstance">添加实例文件</button>
+            <button class="manual-btn" type="button" id="manualParseInstances">识别实例信息</button>
             <span class="manual-help">可多次添加</span>
           </div>
           <input type="file" id="manualInstancePicker" accept=".3mf" multiple style="display:none">
@@ -209,8 +233,8 @@
       </form>
     </div>
   </div>
-  <script src="/static/js/gallery.js?v=5.1" defer></script>
-  <script src="/static/js/manual_import.js?v=5.1" defer></script>
-</body>
+  <script src="/static/js/gallery.js?v=5.2" defer></script>
+  <script src="/static/js/manual_import.js?v=5.3" defer></script>
+  /body>
 
 </html>

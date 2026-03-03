@@ -42,7 +42,7 @@ pip-delete-this-directory.txt
 
 # Logs
 *.log
-logs/
+#logs/
 app*/logs/
 
 # Data & Config

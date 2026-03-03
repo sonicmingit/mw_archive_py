@@ -2,11 +2,12 @@
 
 ![MakerWorld Archive](https://aliyun-wb-h9vflo19he.oss-cn-shanghai.aliyuncs.com/use/makerworld_archive.png)
 
-一个用于归档 MakerWorld 模型到本地的 FastAPI 项目，支持模型采集、离线页面生成、模型库浏览、缺失 3MF 重试，以及浏览器插件一键归档。
+一个用于归档 MakerWorld 模型到本地的项目，支持模型采集、离线页面生成、模型库浏览、缺失 3MF 重试，以及浏览器插件一键归档。
 
 ## 当前版本
-- `v5.0`（2026-03-02）
-- 更新说明见 [doc/v5.0_update_log.md](doc/v5.0_update_log.md)
+- `v5.1`（2026-03-03）
+- 更新说明见 [doc/logs/v5.1_update_log.md](doc/logs/v5.1_update_log.md)
+- 本次重点：手动导入识别回显增强、打印配置改为弹窗识别保存、手动导入来源统一为“手动导入（LocalModel）”、导入编号改为 data 目录独立持久化。
 
 ## 核心能力
 - 归档模型并落盘为独立目录：`MW_<id>_<title>/`
@@ -179,7 +180,7 @@ http://127.0.0.1:8000
 注: 为减少触发验证,目前只能一次归档一个模型.
 
 ## API 清单
-> 详细的接口、传参示例和返回说明，请参见完整的 [API 接口文档 (doc/api.md)](doc/api.md)
+> 详细的接口、传参示例和返回说明，请参见完整的 [API 接口文档 (doc/api.md)](doc/readme/api.md)
 
 - `GET /api/config`
 - `POST /api/cookie`
@@ -220,11 +221,9 @@ Chrome 插件：
 - `scripts/patch_attachments.py`、`scripts/patch_printed.py`：历史数据补丁脚本。
 
 ## 文档目录
-- [doc/api.md (API 接口文档)](doc/api.md)
-- [doc/v5.0_update_log.md](doc/v5.0_update_log.md)
-- [doc/v4.5_update_log.md](doc/v4.5_update_log.md)
-- [doc/v4.0_update_log.md](doc/v4.0_update_log.md)
-- [doc/项目架构与功能文档.md](doc/项目架构与功能文档.md)
-
-## 许可证
-MIT
+- [api.md (API 接口文档)](doc/readme/api.md)
+- [v5.1_update_log.md](doc/logs/v5.1_update_log.md)
+- [v5.0_update_log.md](doc/logs/v5.0_update_log.md)
+- [v4.5_update_log.md](doc/logs/v4.5_update_log.md)
+- [v4.0_update_log.md](doc/logs/v4.0_update_log.md)
+- [项目架构与功能文档.md](doc/archives项目架构与功能文档.md)

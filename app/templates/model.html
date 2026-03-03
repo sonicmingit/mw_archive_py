@@ -9,7 +9,7 @@
     <link rel="icon" type="image/png" href="/static/imgs/fav.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="/static/css/variables.css">
-    <link rel="stylesheet" href="/static/css/model.css?v=2.6">
+    <link rel="stylesheet" href="/static/css/model.css?v=2.7">
 </head>
 
 <body>
@@ -92,11 +92,7 @@
                 <div class="instances-section card-block">
                     <div class="section-title"><i class="fas fa-layer-group"></i> 打印配置</div>
                     <div class="instance-admin hidden" id="instanceAdminBar">
-                        <input type="file" id="instance3mfInput" accept=".3mf" style="display:none">
-                        <button class="inst-admin-btn" type="button" id="instance3mfPickBtn"><i class="fas fa-plus"></i> 添加打印配置</button>
-                        <button class="inst-admin-btn primary" type="button" id="instance3mfUploadBtn"><i class="fas fa-upload"></i> 识别并追加</button>
-                        <span class="inst-admin-file" id="instance3mfFileName">未选择文件</span>
-                        <span class="inst-admin-msg" id="instance3mfMsg"></span>
+                        <button class="inst-admin-btn primary" type="button" id="instanceImportOpenBtn"><i class="fas fa-plus"></i> 添加打印配置</button>
                     </div>
                     <div class="instances" id="instanceList"></div>
                 </div>
@@ -123,6 +119,56 @@
         </div>
     </div>
 
+    <!-- 添加打印配置 Modal -->
+    <div class="inst-import-modal" id="instanceImportModal" aria-hidden="true">
+        <div class="inst-import-modal__inner" role="dialog" aria-modal="true" aria-labelledby="instanceImportTitle">
+            <div class="inst-import-modal__header">
+                <h3 id="instanceImportTitle"><i class="fas fa-plus-circle"></i> 添加打印配置</h3>
+                <button class="inst-import-close" type="button" id="instanceImportCloseBtn"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="inst-import-modal__body">
+                <div class="inst-import-row">
+                    <label>选择 3MF 文件</label>
+                    <div class="inst-import-inline">
+                        <input type="file" id="instanceImportFileInput" accept=".3mf">
+                        <button class="inst-admin-btn" type="button" id="instanceImportParseBtn"><i class="fas fa-search"></i> 识别</button>
+                    </div>
+                </div>
+                <div class="inst-import-preview hidden" id="instanceImportPreview">
+                    <div class="inst-import-grid">
+                        <div>
+                            <label>配置标题</label>
+                            <input type="text" id="instanceImportTitleInput" placeholder="识别后可修改">
+                        </div>
+                        <div>
+                            <label>源文件名</label>
+                            <div class="inst-import-file" id="instanceImportSourceName">-</div>
+                        </div>
+                    </div>
+                    <div class="inst-import-row">
+                        <label>配置介绍</label>
+                        <textarea id="instanceImportSummaryInput" rows="3" placeholder="识别后可修改"></textarea>
+                    </div>
+                    <div class="inst-import-assets">
+                        <div>
+                            <div class="inst-import-assets-title">配置图片</div>
+                            <div class="inst-import-gallery" id="instanceImportPics"></div>
+                        </div>
+                        <div>
+                            <div class="inst-import-assets-title">分盘缩略图</div>
+                            <div class="inst-import-gallery" id="instanceImportPlates"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="inst-import-msg" id="instanceImportMsg"></div>
+            </div>
+            <div class="inst-import-modal__footer">
+                <button class="inst-admin-btn" type="button" id="instanceImportCancelBtn">取消</button>
+                <button class="inst-admin-btn primary" type="button" id="instanceImportSaveBtn" disabled><i class="fas fa-save"></i> 保存配置</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 灯箱 -->
     <div class="lightbox" id="imgLightbox">
         <button class="lb-nav lb-prev"><i class="fas fa-chevron-left"></i></button>
@@ -130,7 +176,7 @@
         <button class="lb-nav lb-next"><i class="fas fa-chevron-right"></i></button>
     </div>
 
-    <script src="/static/js/model.js?v=2.6"></script>
+    <script src="/static/js/model.js?v=2.8"></script>
 </body>
 
 </html>
