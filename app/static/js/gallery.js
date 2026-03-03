@@ -131,13 +131,18 @@ function sortModelsDesc(list) {
 }
 
 function getSourceValue(m) {
-  if (m && m.source) return m.source;
+  const src = String((m && m.source) || "").trim().toLowerCase();
+  if (src === "makerworld") return "makerworld";
+  if (src === "localmodel" || src === "others" || src === "other") return "localmodel";
   const dir = m?.dir || "";
-  return dir.startsWith("Others_") ? "others" : "makerworld";
+  if (dir.startsWith("LocalModel_")) return "localmodel";
+  if (dir.startsWith("Others_")) return "localmodel";
+  return "makerworld";
 }
 
 function formatSourceLabel(value) {
-  return value === "others" ? "Others" : "MakerWorld";
+  if (value === "localmodel") return "手动导入";
+  return "MakerWorld";
 }
 
 function selectSource(source) {
@@ -350,8 +355,8 @@ function renderSourceMenu() {
     counts[key] = (counts[key] || 0) + 1;
   });
   const total = models.length || 0;
-  const labels = { makerworld: "MakerWorld", others: "Others" };
-  const order = ["makerworld", "others"];
+  const labels = { makerworld: "MakerWorld", localmodel: "手动导入" };
+  const order = ["makerworld", "localmodel"];
   sourceMenu.innerHTML = "";
 
   const allBtn = document.createElement("button");

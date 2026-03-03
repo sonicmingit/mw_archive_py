@@ -1044,3 +1044,187 @@ body {
     flex-wrap: wrap;
     gap: 8px;
 }
+
+/* 添加打印配置弹窗 */
+.inst-import-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.inst-import-modal.active {
+    display: flex;
+}
+
+.inst-import-modal__inner {
+    width: min(860px, 96vw);
+    max-height: 90vh;
+    background: #fff;
+    border-radius: 14px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.inst-import-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.inst-import-modal__header h3 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.inst-import-close {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.inst-import-modal__body {
+    padding: 16px 18px;
+    overflow: auto;
+}
+
+.inst-import-row {
+    margin-bottom: 12px;
+}
+
+.inst-import-row label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+
+.inst-import-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.inst-import-inline input[type="file"] {
+    max-width: 100%;
+}
+
+.inst-import-preview {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: #f8fbfc;
+    padding: 12px;
+}
+
+.inst-import-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.inst-import-grid input[type="text"],
+.inst-import-row textarea {
+    width: 100%;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+.inst-import-file {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: #fff;
+    padding: 0 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.inst-import-assets {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.inst-import-assets-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+
+.inst-import-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    gap: 6px;
+}
+
+.inst-import-gallery-item {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.inst-import-gallery-item img {
+    width: 100%;
+    height: 68px;
+    object-fit: cover;
+    display: block;
+}
+
+.inst-import-gallery-item .caption {
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding: 4px 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.inst-import-msg {
+    font-size: 13px;
+    color: var(--text-secondary);
+    min-height: 18px;
+    margin-top: 8px;
+}
+
+.inst-import-msg.error {
+    color: var(--color-error);
+}
+
+.inst-import-modal__footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    background: #fff;
+}
+
+@media (max-width: 900px) {
+    .inst-import-grid,
+    .inst-import-assets {
+        grid-template-columns: 1fr;
+    }
+}

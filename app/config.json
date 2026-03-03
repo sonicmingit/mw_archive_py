@@ -1,5 +1,5 @@
 {
-  "download_dir": "./data",
-  "cookie_file": "./cookie.txt",
-  "logs_dir": "./logs"
+  "download_dir": "D:\\Code\\sonic\\1.tampermonkey\\bambu\\makerworld_archive\\0.mw_archive\\app\\data",
+  "cookie_file": "D:\\Code\\sonic\\1.tampermonkey\\bambu\\makerworld_archive\\0.mw_archive\\app\\cookie.txt",
+  "logs_dir": "D:\\Code\\sonic\\1.tampermonkey\\bambu\\makerworld_archive\\0.mw_archive\\app\\logs"
 }

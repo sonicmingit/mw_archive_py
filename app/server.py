@@ -3,11 +3,13 @@ import logging
 import re
 import shutil
 import sys
+import threading
 import uuid
 from html import escape as escape_html
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlparse
 
 import requests
 import uvicorn
@@ -17,7 +19,6 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from archiver import (
-    STYLE_CSS,
     archive_model,
     build_index_html,
     download_file,
@@ -39,8 +40,10 @@ MANUAL_DRAFT_ROOT = TMP_DIR / "manual_drafts"
 DEFAULT_CONFIG = {
     "download_dir": "./data",
     "cookie_file": "./cookie.txt",
-    "logs_dir": "./logs"
+    "logs_dir": "./logs",
 }
+MANUAL_COUNTER_LOCK = threading.Lock()
+MANUAL_COUNTER_FILE = "_manual_import_counter.json"
 
 # 日志
 LOGS_DIR = BASE_DIR / "logs"
@@ -79,8 +82,8 @@ def resolve_collect_iso(data: dict, meta_path: Path) -> str:
 def resolve_model_dir(model_dir: str) -> Path:
     if not model_dir or "/" in model_dir or "\\" in model_dir:
         raise HTTPException(400, "model_dir 无效")
-    if not (model_dir.startswith("MW_") or model_dir.startswith("Others_")):
-        raise HTTPException(400, "仅允许 MW_* 或 Others_* 目录")
+    if not (model_dir.startswith("MW_") or model_dir.startswith("Others_") or model_dir.startswith("LocalModel_")):
+        raise HTTPException(400, "仅允许 MW_* / Others_* / LocalModel_* 目录")
     
     root = Path(CFG["download_dir"]).resolve()
     target = (root / model_dir).resolve()
@@ -201,6 +204,78 @@ def pick_ext(filename: str, fallback: str) -> str:
     return suffix if suffix else fallback
 
 
+def pick_ext_from_url(url: str, fallback: str = ".jpg") -> str:
+    try:
+        suffix = Path(urlparse(url or "").path).suffix.lower()
+    except Exception:
+        suffix = ""
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
+        return suffix
+    return fallback
+
+
+def localize_summary_external_images(summary_html: str, images_dir: Path) -> tuple[str, List[dict]]:
+    html_in = (summary_html or "").strip()
+    if not html_in:
+        return html_in, []
+
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (MW-ManualImport)"})
+
+    summary_images: List[dict] = []
+    cached: dict[str, str] = {}
+    counter = 1
+    pattern = re.compile(r'(<img\b[^>]*\bsrc\s*=\s*)(["\'])([^"\']+)(\2)', re.IGNORECASE)
+
+    def repl(match: re.Match) -> str:
+        nonlocal counter
+        prefix, quote, src, _tail = match.groups()
+        src_clean = (src or "").strip()
+        if not src_clean.lower().startswith(("http://", "https://")):
+            return match.group(0)
+        if src_clean in cached:
+            local_name = cached[src_clean]
+            return f"{prefix}{quote}./images/{local_name}{quote}"
+
+        ext = pick_ext_from_url(src_clean, ".jpg")
+        dest = ensure_unique_path(images_dir / f"summary_ext_{counter:02d}{ext}")
+        try:
+            resp = session.get(src_clean, timeout=20)
+            resp.raise_for_status()
+            content = resp.content or b""
+            if not content:
+                return match.group(0)
+            dest.write_bytes(content)
+        except Exception:
+            return match.group(0)
+
+        local_name = dest.name
+        cached[src_clean] = local_name
+        summary_images.append({
+            "index": len(summary_images) + 1,
+            "originalUrl": src_clean,
+            "relPath": f"images/{local_name}",
+            "fileName": local_name,
+        })
+        counter += 1
+        return f"{prefix}{quote}./images/{local_name}{quote}"
+
+    localized = pattern.sub(repl, html_in)
+    return localized, summary_images
+
+
+def sanitize_instance_storage_name(filename: str, fallback: str = "instance") -> str:
+    raw = Path(str(filename or "")).name
+    # 草稿会临时写成 s01_xxx.3mf，落正式目录时去掉该前缀
+    raw = re.sub(r"^s\d+_", "", raw, flags=re.IGNORECASE)
+    safe = sanitize_filename(raw).strip()
+    if not safe:
+        safe = f"{fallback}.3mf"
+    if Path(safe).suffix.lower() != ".3mf":
+        safe = f"{Path(safe).stem or fallback}.3mf"
+    return safe
+
+
 def is_image_upload(upload: UploadFile) -> bool:
     content_type = (upload.content_type or "").lower()
     if content_type.startswith("image/"):
@@ -275,6 +350,18 @@ def parse_instance_descs(raw: str) -> List[str]:
     return [str(item or "") for item in data]
 
 
+def parse_instance_titles(raw: str) -> List[str]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(item or "").strip() for item in data]
+
+
 def parse_draft_instance_overrides(raw: str) -> List[dict]:
     if not raw:
         return []
@@ -331,6 +418,16 @@ def copy_draft_image(session_dir: Path, image_name: str, images_dir: Path) -> st
         return ""
     safe = sanitize_filename(src.name) or src.name
     dest = ensure_unique_path(images_dir / safe)
+    shutil.copy2(src, dest)
+    return dest.name
+
+
+def copy_draft_file(session_dir: Path, file_name: str, files_dir: Path) -> str:
+    src = session_dir / "file" / file_name
+    if not src.exists() or not src.is_file():
+        return ""
+    safe = sanitize_filename(src.name) or src.name
+    dest = ensure_unique_path(files_dir / safe)
     shutil.copy2(src, dest)
     return dest.name
 
@@ -453,49 +550,120 @@ def rebuild_archived_pages(force: bool = False, backup: bool = False, dry_run: b
     }
 
 
-def make_summary_payload(text: str, summary_files: List[str]) -> dict:
+def make_summary_payload(text: str, summary_files: List[str], html_content: str = "") -> dict:
     clean_text = (text or "").strip()
+    html_raw = (html_content or "").strip()
     parts = []
-    if clean_text:
+    if html_raw:
+        # 基础过滤，避免内联脚本注入
+        html_raw = re.sub(r"<script[\s\S]*?>[\s\S]*?</script>", "", html_raw, flags=re.IGNORECASE).strip()
+        if html_raw:
+            parts.append(html_raw)
+    elif clean_text:
         safe_text = escape_html(clean_text).replace("\n", "<br>")
         parts.append(f"<p>{safe_text}</p>")
     for idx, name in enumerate(summary_files, start=1):
         parts.append(f'<img src="./images/{name}" alt="summary {idx}">')
     html = "\n".join(parts)
-    summary_text = " ".join(clean_text.split())
+    summary_text = " ".join((clean_text or strip_html(html)).split())
     return {"raw": html, "html": html, "text": summary_text}
 
 
-def build_others_dir(title: str) -> tuple[str, Path]:
+def manual_counter_path(cfg: Optional[dict] = None) -> Path:
+    cfg_now = cfg if isinstance(cfg, dict) else CFG
+    root = Path(cfg_now["download_dir"]).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root / MANUAL_COUNTER_FILE
+
+
+def read_manual_counter(cfg: Optional[dict] = None) -> int:
+    path = manual_counter_path(cfg)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    try:
+        if isinstance(data, dict):
+            value = int(data.get("counter") or 0)
+        else:
+            value = int(data or 0)
+    except Exception:
+        return 0
+    return max(value, 0)
+
+
+def write_manual_counter(counter: int, cfg: Optional[dict] = None):
+    path = manual_counter_path(cfg)
+    payload = {
+        "counter": max(int(counter), 0),
+        "updated_at": datetime.now().isoformat(),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def ensure_manual_counter_file(cfg: Optional[dict] = None):
+    path = manual_counter_path(cfg)
+    if path.exists():
+        return
+    write_manual_counter(0, cfg)
+
+
+def build_local_model_dir(title: str) -> tuple[str, Path]:
     safe_title = sanitize_filename(title).strip() or "model"
-    date_stamp = datetime.now().strftime("%Y%m%d")
-    base_name = f"Others_{safe_title}_{date_stamp}"
-    root = Path(CFG["download_dir"]).resolve()
-    candidate = root / base_name
-    if not candidate.exists():
-        return base_name, candidate
-    idx = 1
-    while True:
-        name = f"{base_name}_{idx}"
-        candidate = root / name
-        if not candidate.exists():
-            return name, candidate
-        idx += 1
+    with MANUAL_COUNTER_LOCK:
+        cfg_now = load_config()
+        root = Path(cfg_now["download_dir"]).resolve()
+        counter = read_manual_counter(cfg_now)
+
+        while True:
+            counter += 1
+            base_name = f"LocalModel_{counter:06d}_{safe_title}"
+            candidate = root / base_name
+            if candidate.exists():
+                continue
+            write_manual_counter(counter, cfg_now)
+            try:
+                CFG.update(cfg_now)
+            except Exception:
+                pass
+            return base_name, candidate
 
 
 # ---------- 配置与持久化 ----------
 def load_config():
+    changed = False
     if CONFIG_PATH.exists():
         cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     else:
-        cfg = DEFAULT_CONFIG
-        CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        cfg = dict(DEFAULT_CONFIG)
+        changed = True
+    if not isinstance(cfg, dict):
+        cfg = dict(DEFAULT_CONFIG)
+        changed = True
+    for k, v in DEFAULT_CONFIG.items():
+        if k not in cfg:
+            cfg[k] = v
+            changed = True
     # 规范化为绝对路径
-    cfg["download_dir"] = str((BASE_DIR / cfg.get("download_dir", "data")).resolve())
-    cfg["cookie_file"] = str((BASE_DIR / cfg.get("cookie_file", "cookie.txt")).resolve())
-    cfg["logs_dir"] = str((BASE_DIR / cfg.get("logs_dir", "logs")).resolve())
+    cfg_download = str((BASE_DIR / cfg.get("download_dir", "data")).resolve())
+    cfg_cookie = str((BASE_DIR / cfg.get("cookie_file", "cookie.txt")).resolve())
+    cfg_logs = str((BASE_DIR / cfg.get("logs_dir", "logs")).resolve())
+    if cfg.get("download_dir") != cfg_download:
+        changed = True
+    if cfg.get("cookie_file") != cfg_cookie:
+        changed = True
+    if cfg.get("logs_dir") != cfg_logs:
+        changed = True
+    cfg["download_dir"] = cfg_download
+    cfg["cookie_file"] = cfg_cookie
+    cfg["logs_dir"] = cfg_logs
+    if "manual_local_model_counter" in cfg:
+        del cfg["manual_local_model_counter"]
+        changed = True
     Path(cfg["download_dir"]).mkdir(parents=True, exist_ok=True)
     Path(cfg["logs_dir"]).mkdir(parents=True, exist_ok=True)
+    if changed:
+        CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return cfg
 
 
@@ -844,7 +1012,17 @@ def redownload_model_by_id(cfg, cookie: str, model_id: int):
 def scan_gallery(cfg) -> List[dict]:
     root = Path(cfg["download_dir"])
     items = []
-    for d in root.glob("MW_*"):
+    for d in root.iterdir():
+        if not d.is_dir():
+            continue
+        if d.name.startswith(".") or d.name.startswith("_"):
+            continue
+        if not (
+            d.name.startswith("MW_")
+            or d.name.startswith("Others_")
+            or d.name.startswith("LocalModel_")
+        ):
+            continue
         meta = d / "meta.json"
         if not meta.exists():
             continue
@@ -863,49 +1041,20 @@ def scan_gallery(cfg) -> List[dict]:
                     published_at = ts
             author = data.get("author") or {}
             collected_at = resolve_collect_iso(data, meta)
+            raw_source = str(data.get("source") or "").strip().lower()
+            if d.name.startswith("MW_"):
+                source_value = "makerworld"
+            elif raw_source in {"localmodel", "others"} or d.name.startswith("LocalModel_") or d.name.startswith("Others_"):
+                source_value = "localmodel"
+            else:
+                source_value = "localmodel"
             items.append({
                 "baseName": data.get("baseName") or d.name,
                 "title": data.get("title"),
                 "id": data.get("id"),
                 "cover": cover_file,
                 "dir": d.name,
-                "source": "makerworld",
-                "tags": data.get("tags") or [],
-                "summary": strip_html(raw_summary),
-                "author": {
-                    "name": author.get("name"),
-                    "url": author.get("url"),
-                    "avatarRelPath": author.get("avatarRelPath"),
-                },
-                "stats": data.get("stats") or {},
-                "instanceCount": len(instances),
-                "publishedAt": published_at,
-                "collectedAt": collected_at,
-            })
-        except Exception:
-            continue
-    for d in root.glob("Others_*"):
-        meta = d / "meta.json"
-        if not meta.exists():
-            continue
-        try:
-            data = json.loads(meta.read_text(encoding="utf-8"))
-            images = data.get("images") or {}
-            cover_name = images.get("cover") or ""
-            cover_file = (d / "images" / cover_name).name if cover_name else ""
-            summary_data = data.get("summary") or {}
-            raw_summary = summary_data.get("text") or summary_data.get("raw") or summary_data.get("html") or ""
-            instances = data.get("instances") or []
-            published_at = None
-            author = data.get("author") or {}
-            collected_at = resolve_collect_iso(data, meta)
-            items.append({
-                "baseName": data.get("baseName") or d.name,
-                "title": data.get("title"),
-                "id": data.get("id"),
-                "cover": cover_file,
-                "dir": d.name,
-                "source": "others",
+                "source": source_value,
                 "tags": data.get("tags") or [],
                 "summary": strip_html(raw_summary),
                 "author": {
@@ -933,6 +1082,7 @@ app.add_middleware(
 )
 
 CFG = load_config()
+ensure_manual_counter_file(CFG)
 
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 MANUAL_DRAFT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -961,6 +1111,7 @@ async def api_config():
         "download_dir": cfg["download_dir"],
         "logs_dir": cfg["logs_dir"],
         "cookie_file": cfg["cookie_file"],
+        "manual_local_model_counter": read_manual_counter(cfg),
         "cookie_updated_at": datetime.fromtimestamp(cookie_time).isoformat() if cookie_time else None,
     }
 
@@ -1311,12 +1462,15 @@ async def api_model_add_instance_from_3mf(
         src_3mf = temp_session / "instances" / str(parsed.get("instanceFile") or "")
         if not src_3mf.exists():
             raise HTTPException(500, "未解析到有效 3MF 文件")
-        dest_3mf = ensure_unique_path(instances_dir / sanitize_filename(src_3mf.name))
+        source_name = str(parsed.get("sourceName") or file.filename or src_3mf.name)
+        storage_name = sanitize_instance_storage_name(source_name, fallback=f"instance_{next_instance_id(meta.get('instances') if isinstance(meta.get('instances'), list) else [])}")
+        dest_3mf = ensure_unique_path(instances_dir / storage_name)
         shutil.copy2(src_3mf, dest_3mf)
 
         # 复制实例图片
         pics = []
-        for pidx, fn in enumerate(parsed.get("designFiles") or [], start=1):
+        pic_files = parsed.get("profilePictureFiles") or parsed.get("designFiles") or []
+        for pidx, fn in enumerate(pic_files, start=1):
             copied = copy_draft_image(temp_session, str(fn), images_dir)
             if not copied:
                 continue
@@ -1371,6 +1525,8 @@ async def api_model_add_instance_from_3mf(
             "summary": inst_summary,
             "summaryTranslated": "",
             "name": dest_3mf.name,
+            "fileName": dest_3mf.name,
+            "sourceFileName": Path(source_name).name,
             "downloadUrl": "",
             "apiUrl": "",
         })
@@ -1392,6 +1548,7 @@ async def api_manual_import(
     modelLink: str = Form(""),
     sourceLink: str = Form(""),
     summary: str = Form(""),
+    summary_html: str = Form(""),
     tags: str = Form(""),
     draft_session_id: str = Form(""),
     draft_instance_overrides: str = Form(""),
@@ -1401,6 +1558,7 @@ async def api_manual_import(
     instance_pictures: List[UploadFile] = File([]),
     attachments: List[UploadFile] = File([]),
     instance_descs: str = Form(""),
+    instance_titles: str = Form(""),
     instance_picture_counts: str = Form(""),
 ):
     draft_data = {}
@@ -1412,7 +1570,7 @@ async def api_manual_import(
     if not name:
         raise HTTPException(400, "模型名称不能为空")
 
-    base_name, model_dir = build_others_dir(name)
+    base_name, model_dir = build_local_model_dir(name)
     images_dir = model_dir / "images"
     instances_dir = model_dir / "instances"
     files_dir = model_dir / "file"
@@ -1437,6 +1595,9 @@ async def api_manual_import(
             if copied:
                 design_names.append(copied)
 
+        for draft_att in draft_data.get("attachments") or []:
+            copy_draft_file(draft_session_dir, str(draft_att), files_dir)
+
     if cover and cover.filename:
         ext = pick_ext(cover.filename, ".jpg")
         cover_name = f"cover{ext}"
@@ -1458,6 +1619,7 @@ async def api_manual_import(
         design_names = [cover_name]
 
     desc_list = parse_instance_descs(instance_descs)
+    title_list = parse_instance_titles(instance_titles)
     try:
         pic_counts_raw = json.loads(instance_picture_counts) if instance_picture_counts else []
     except Exception:
@@ -1483,7 +1645,9 @@ async def api_manual_import(
             src_3mf = draft_session_dir / "instances" / src_name
             if not src_name or not src_3mf.exists():
                 continue
-            dest_3mf = ensure_unique_path(instances_dir / sanitize_filename(src_name))
+            source_name = str(ditem.get("sourceFileName") or src_name)
+            storage_name = sanitize_instance_storage_name(source_name, fallback=f"instance_{i}")
+            dest_3mf = ensure_unique_path(instances_dir / storage_name)
             shutil.copy2(src_3mf, dest_3mf)
 
             pics = []
@@ -1525,6 +1689,8 @@ async def api_manual_import(
                 "summary": inst_summary,
                 "summaryTranslated": "",
                 "name": dest_3mf.name,
+                "fileName": dest_3mf.name,
+                "sourceFileName": Path(source_name).name,
                 "publishTime": str(ditem.get("publishTime") or ""),
                 "downloadCount": 0,
                 "printCount": 0,
@@ -1544,16 +1710,62 @@ async def api_manual_import(
     for idx, upload in enumerate(instance_files, start=1):
         if not upload or not upload.filename:
             continue
-        safe_name = sanitize_filename(Path(upload.filename).name)
-        if not safe_name:
-            safe_name = f"instance_{idx}.3mf"
-        stem = Path(safe_name).stem or f"instance_{idx}"
-        suffix = pick_ext(safe_name, ".3mf")
-        dest = ensure_unique_path(instances_dir / f"{stem}{suffix}")
-        save_upload_file(upload, dest)
-        inst_title = dest.stem
-        inst_summary = desc_list[idx - 1] if (idx - 1) < len(desc_list) else ""
+        source_name = Path(upload.filename).name if upload and upload.filename else f"instance_{idx}.3mf"
+        storage_name = sanitize_instance_storage_name(source_name, fallback=f"instance_{idx}")
+        dest = ensure_unique_path(instances_dir / storage_name)
+
+        raw_data = await upload.read()
+        if not raw_data:
+            continue
+        dest.write_bytes(raw_data)
+
+        parsed_inst: dict = {}
+        temp_session = TMP_DIR / "manual_instance_parse" / uuid.uuid4().hex
+        temp_session.mkdir(parents=True, exist_ok=True)
+        try:
+            parsed_inst = parse_3mf_to_session(raw_data, source_name, temp_session, idx)
+        except Exception:
+            parsed_inst = {}
+
+        manual_title = (title_list[idx - 1] if (idx - 1) < len(title_list) else "").strip()
+        parsed_title = str(parsed_inst.get("profileTitle") or parsed_inst.get("modelTitle") or "").strip() if parsed_inst else ""
+        inst_title = manual_title or parsed_title or dest.stem
+
+        manual_summary = (desc_list[idx - 1] if (idx - 1) < len(desc_list) else "").strip()
+        parsed_summary = str(parsed_inst.get("profileSummaryText") or parsed_inst.get("summaryText") or "").strip() if parsed_inst else ""
+        inst_summary = manual_summary or parsed_summary
+
         pics = []
+        parsed_pic_files = (parsed_inst.get("profilePictureFiles") or parsed_inst.get("designFiles") or []) if parsed_inst else []
+        for pidx, fn in enumerate(parsed_pic_files, start=1):
+            copied = copy_draft_image(temp_session, str(fn), images_dir)
+            if not copied:
+                continue
+            pics.append({
+                "index": len(pics) + 1,
+                "url": "",
+                "relPath": f"images/{copied}",
+                "fileName": copied,
+                "isRealLifePhoto": 0,
+            })
+
+        plates = []
+        for pidx, plate in enumerate(parsed_inst.get("plates") or [], start=1):
+            src_th = str(plate.get("thumbnailFile") or "")
+            copied_th = copy_draft_image(temp_session, src_th, images_dir)
+            if not copied_th:
+                continue
+            plates.append({
+                "index": int(plate.get("index") or pidx),
+                "prediction": int(plate.get("prediction") or 0),
+                "weight": int(plate.get("weight") or 0),
+                "filaments": plate.get("filaments") if isinstance(plate.get("filaments"), list) else [],
+                "thumbnailUrl": "",
+                "thumbnailRelPath": f"images/{copied_th}",
+                "thumbnailFile": copied_th,
+            })
+        shutil.rmtree(temp_session, ignore_errors=True)
+
         wanted = pic_counts[idx - 1] if (idx - 1) < len(pic_counts) else 0
         for pic_idx in range(1, wanted + 1):
             if pic_offset >= len(instance_pictures):
@@ -1566,7 +1778,7 @@ async def api_manual_import(
             fname = f"inst{idx:02d}_pic_{pic_idx:02d}{ext}"
             save_upload_file(pic_upload, images_dir / fname)
             pics.append({
-                "index": pic_idx,
+                "index": len(pics) + 1,
                 "url": "",
                 "relPath": f"images/{fname}",
                 "fileName": fname,
@@ -1577,9 +1789,17 @@ async def api_manual_import(
             "title": inst_title,
             "summary": inst_summary,
             "name": dest.name,
+            "fileName": dest.name,
+            "sourceFileName": source_name,
+            "publishTime": str(parsed_inst.get("creationDate") or "") if parsed_inst else "",
             "downloadCount": 0,
             "printCount": 0,
-            "plates": [],
+            "prediction": 0,
+            "weight": 0,
+            "materialCnt": 0,
+            "materialColorCnt": 0,
+            "needAms": False,
+            "plates": plates,
             "pictures": pics,
             "instanceFilaments": [],
         })
@@ -1594,14 +1814,38 @@ async def api_manual_import(
 
     tag_list = [t for t in re.split(r"\s+", (tags or "").strip()) if t]
     summary_text = (summary or "").strip() or str(draft_data.get("summary") or "").strip()
-    summary_payload = make_summary_payload(summary_text, summary_names)
+    summary_html_value = (summary_html or "").strip() or str(draft_data.get("summaryHtml") or "").strip()
+    summary_payload = make_summary_payload(summary_text, summary_names, summary_html_value)
+    localized_html, ext_summary_images = localize_summary_external_images(summary_payload.get("html") or "", images_dir)
+    if localized_html:
+        summary_payload["html"] = localized_html
+        summary_payload["raw"] = localized_html
+        summary_payload["text"] = " ".join(strip_html(localized_html).split())
+
+    summary_records = [
+        {"index": idx, "originalUrl": "", "relPath": f"images/{fname}", "fileName": fname}
+        for idx, fname in enumerate(summary_names, start=1)
+    ]
+    existing_summary = {x.get("fileName") for x in summary_records}
+    for rec in ext_summary_images:
+        fn = rec.get("fileName")
+        if fn and fn not in existing_summary:
+            summary_records.append({
+                "index": len(summary_records) + 1,
+                "originalUrl": rec.get("originalUrl") or "",
+                "relPath": rec.get("relPath") or f"images/{fn}",
+                "fileName": fn,
+            })
+            existing_summary.add(fn)
+    summary_names_all = [x.get("fileName") for x in summary_records if x.get("fileName")]
+
     author_url = (sourceLink or modelLink or "").strip()
     author_name = "手动导入"
     if draft_data and str(draft_data.get("designer") or "").strip():
         author_name = str(draft_data.get("designer") or "").strip()
     meta = {
         "baseName": base_name,
-        "source": "others",
+        "source": "LocalModel",
         "url": (modelLink or sourceLink or "").strip(),
         "id": None,
         "slug": "",
@@ -1626,16 +1870,13 @@ async def api_manual_import(
         "images": {
             "cover": cover_name,
             "design": design_names,
-            "summary": summary_names,
+            "summary": summary_names_all,
         },
         "designImages": [
             {"index": idx, "originalUrl": "", "relPath": f"images/{fname}", "fileName": fname}
             for idx, fname in enumerate(design_names, start=1)
         ],
-        "summaryImages": [
-            {"index": idx, "originalUrl": "", "relPath": f"images/{fname}", "fileName": fname}
-            for idx, fname in enumerate(summary_names, start=1)
-        ],
+        "summaryImages": summary_records,
         "summary": summary_payload,
         "instances": instances,
         "collectDate": int(datetime.now().timestamp()),
@@ -1646,9 +1887,9 @@ async def api_manual_import(
 
     meta_path = model_dir / "meta.json"
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    sync_offline_files_to_meta(model_dir, attachments=[], printed=[])
+    sync_offline_files_to_meta(model_dir)
 
-    hero_file = cover_name or (design_names[0] if design_names else (summary_names[0] if summary_names else ""))
+    hero_file = cover_name or (design_names[0] if design_names else (summary_names_all[0] if summary_names_all else ""))
     hero_rel = f"./images/{hero_file}" if hero_file else "screenshot.png"
     assets = {
         "design_files": design_names,
@@ -1660,7 +1901,6 @@ async def api_manual_import(
         "hide_stats": True,
         "hide_inst_stats": True,
     }
-    (model_dir / "style.css").write_text(STYLE_CSS, encoding="utf-8")
     index_html = build_index_html(meta, assets)
     (model_dir / "index.html").write_text(index_html, encoding="utf-8")
 

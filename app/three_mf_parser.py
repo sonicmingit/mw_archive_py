@@ -115,8 +115,10 @@ def parse_3mf_to_session(
 ) -> Dict:
     images_dir = session_dir / "images"
     inst_dir = session_dir / "instances"
+    file_dir = session_dir / "file"
     images_dir.mkdir(parents=True, exist_ok=True)
     inst_dir.mkdir(parents=True, exist_ok=True)
+    file_dir.mkdir(parents=True, exist_ok=True)
 
     src_name = sanitize_name(original_name) or f"instance_{slot}.3mf"
     if not src_name.lower().endswith(".3mf"):
@@ -138,9 +140,10 @@ def parse_3mf_to_session(
 
         all_names = pkg.list_paths("")
 
-        # 封面优先：Auxiliaries/Profile Pictures
+        # 模型图与配置图分开处理
+        model_pics = _iter_prefixed_image_paths(all_names, "Auxiliaries/Model Pictures")
         profile_pics = _iter_prefixed_image_paths(all_names, "Auxiliaries/Profile Pictures")
-        cover_src = profile_pics[0] if profile_pics else ""
+        cover_src = model_pics[0] if model_pics else (profile_pics[0] if profile_pics else "")
         if not cover_src:
             candidates = [
                 _norm(md.get("Thumbnail_Middle", "")),
@@ -154,7 +157,7 @@ def parse_3mf_to_session(
                     break
 
         # 项目图优先：Auxiliaries/Model Pictures；兜底 Metadata 图片
-        design_srcs = _iter_prefixed_image_paths(all_names, "Auxiliaries/Model Pictures")
+        design_srcs = list(model_pics)
         if not design_srcs:
             md_imgs = _iter_prefixed_image_paths(all_names, "Metadata")
             prefer = []
@@ -164,18 +167,31 @@ def parse_3mf_to_session(
                     prefer.append(n)
             design_srcs = sorted(prefer)[:12] if prefer else sorted(md_imgs)[:12]
 
-        cover_name = ""
-        if cover_src:
-            ext = Path(cover_src).suffix.lower() or ".jpg"
-            cover_name = f"s{slot:02d}_cover{ext}"
-            (images_dir / cover_name).write_bytes(pkg.read_bytes(cover_src))
-
+        src_to_local: Dict[str, str] = {}
         design_names: List[str] = []
         for i, src in enumerate(design_srcs, start=1):
             ext = Path(src).suffix.lower() or ".jpg"
             local_name = f"s{slot:02d}_design_{i:02d}{ext}"
             (images_dir / local_name).write_bytes(pkg.read_bytes(src))
             design_names.append(local_name)
+            src_to_local[_norm(src)] = local_name
+
+        profile_names: List[str] = []
+        for i, src in enumerate(profile_pics, start=1):
+            ext = Path(src).suffix.lower() or ".jpg"
+            local_name = f"s{slot:02d}_profile_{i:02d}{ext}"
+            (images_dir / local_name).write_bytes(pkg.read_bytes(src))
+            profile_names.append(local_name)
+            src_to_local[_norm(src)] = local_name
+
+        cover_name = ""
+        norm_cover = _norm(cover_src) if cover_src else ""
+        if norm_cover and norm_cover in src_to_local:
+            cover_name = src_to_local[norm_cover]
+        elif cover_src and pkg.exists(cover_src):
+            ext = Path(cover_src).suffix.lower() or ".jpg"
+            cover_name = f"s{slot:02d}_cover{ext}"
+            (images_dir / cover_name).write_bytes(pkg.read_bytes(cover_src))
 
         model_settings_text = pkg.read_text("Metadata/model_settings.config") if pkg.exists("Metadata/model_settings.config") else ""
         plate_entries = _parse_plate_entries(model_settings_text)
@@ -200,6 +216,23 @@ def parse_3mf_to_session(
         if not cover_name and design_names:
             cover_name = design_names[0]
 
+        # 附件提取
+        attachment_roots = [
+            "Auxiliaries/Others",
+            "Auxiliaries/Assembly Guide",
+            "Auxiliaries/Bill of Materials",
+        ]
+        attachment_names: List[str] = []
+        att_idx = 1
+        for root_dir in attachment_roots:
+            for rel in sorted(pkg.list_paths(root_dir)):
+                rel_norm = _norm(rel)
+                base = sanitize_name(Path(rel_norm).name) or "attachment"
+                local_name = f"s{slot:02d}_att_{att_idx:02d}_{base}"
+                (file_dir / local_name).write_bytes(pkg.read_bytes(rel_norm))
+                attachment_names.append(local_name)
+                att_idx += 1
+
         summary_text = re.sub(r"<[^>]+>", "", description_html).strip()
         profile_summary = re.sub(r"<[^>]+>", "", profile_desc_html).strip()
 
@@ -223,6 +256,8 @@ def parse_3mf_to_session(
             "creationDate": creation_date,
             "coverFile": cover_name,
             "designFiles": design_names,
+            "profilePictureFiles": profile_names,
+            "attachments": attachment_names,
             "plates": plates,
             "projectSettings": project_settings if isinstance(project_settings, dict) else {},
             "metadata": {
@@ -239,9 +274,11 @@ def parse_3mf_to_session(
 def build_draft_payload(session_id: str, parsed_items: List[Dict]) -> Dict:
     title = ""
     summary = ""
+    summary_html = ""
     designer = ""
     cover = ""
     design_files: List[str] = []
+    attachments: List[str] = []
     instances = []
 
     for i, item in enumerate(parsed_items, start=1):
@@ -249,14 +286,19 @@ def build_draft_payload(session_id: str, parsed_items: List[Dict]) -> Dict:
             title = (item.get("modelTitle") or "").strip()
         if not summary:
             summary = (item.get("summaryText") or item.get("profileSummaryText") or "").strip()
+        if not summary_html:
+            summary_html = (item.get("descriptionHtml") or item.get("profileDescriptionHtml") or "").strip()
         if not designer:
             designer = (item.get("designer") or "").strip()
         if not cover and item.get("coverFile"):
             cover = item.get("coverFile")
         if not design_files and item.get("designFiles"):
             design_files = list(item.get("designFiles") or [])
+        for fn in (item.get("attachments") or []):
+            if fn and fn not in attachments:
+                attachments.append(fn)
 
-        pic_files = list(item.get("designFiles") or [])
+        pic_files = list(item.get("profilePictureFiles") or item.get("designFiles") or [])
         pics = []
         for pi, fn in enumerate(pic_files[:6], start=1):
             pics.append({
@@ -272,6 +314,7 @@ def build_draft_payload(session_id: str, parsed_items: List[Dict]) -> Dict:
             "title": item.get("profileTitle") or item.get("modelTitle") or f"实例 {i}",
             "summary": item.get("profileSummaryText") or "",
             "name": item.get("instanceFile"),
+            "sourceFileName": item.get("sourceName") or "",
             "publishTime": item.get("creationDate") or "",
             "downloadCount": 0,
             "printCount": 0,
@@ -296,9 +339,11 @@ def build_draft_payload(session_id: str, parsed_items: List[Dict]) -> Dict:
         "sessionId": session_id,
         "title": title,
         "summary": summary,
+        "summaryHtml": summary_html,
         "designer": designer,
         "coverFile": cover,
         "designFiles": design_files,
+        "attachments": attachments,
         "instances": instances,
     }
 
@@ -314,6 +359,13 @@ def attach_preview_urls(payload: Dict, prefix: str = "manual_drafts") -> Dict:
     cover = out.get("coverFile") or ""
     out["coverUrl"] = tmp_url(prefix, sid, f"images/{cover}") if cover else ""
     out["designUrls"] = [tmp_url(prefix, sid, f"images/{x}") for x in (out.get("designFiles") or [])]
+    out["attachmentUrls"] = [
+        {
+            "name": str(x),
+            "url": tmp_url(prefix, sid, f"file/{x}"),
+        }
+        for x in (out.get("attachments") or [])
+    ]
 
     instances = []
     for inst in out.get("instances") or []:

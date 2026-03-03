@@ -150,6 +150,14 @@
     // ============ 实例文件名计算 ============
 
     function pickInstanceFilename(inst, nameHint) {
+        var explicit = toName((inst && (inst.fileName || inst.localName)) || '');
+        if (explicit) return explicit;
+
+        var hintedName = toName(nameHint || (inst && inst.name) || '');
+        if (hintedName && /\.3mf$/i.test(hintedName)) {
+            return hintedName;
+        }
+
         var baseName = inst.title || inst.name || inst.id || 'model';
         var base = String(baseName).replace(/[\\/:*?"<>|]/g, '_');
         if (!base) {
@@ -305,7 +313,8 @@
     }
 
     function renderStats(meta) {
-        var isOthers = meta.source === 'others';
+        var source = String(meta.source || '').toLowerCase();
+        var isOthers = source === 'others' || source === 'localmodel';
         if (isOthers) return;
         var stats = normalizeStats(meta);
         var el = document.getElementById('statsSection');
@@ -850,12 +859,74 @@
 
     function initInstanceImport() {
         var bar = document.getElementById('instanceAdminBar');
-        var pickBtn = document.getElementById('instance3mfPickBtn');
-        var uploadBtn = document.getElementById('instance3mfUploadBtn');
-        var inputEl = document.getElementById('instance3mfInput');
-        var fileNameEl = document.getElementById('instance3mfFileName');
-        var msgEl = document.getElementById('instance3mfMsg');
-        if (!bar || !pickBtn || !uploadBtn || !inputEl) return;
+        var openBtn = document.getElementById('instanceImportOpenBtn');
+        var modal = document.getElementById('instanceImportModal');
+        var closeBtn = document.getElementById('instanceImportCloseBtn');
+        var cancelBtn = document.getElementById('instanceImportCancelBtn');
+        var fileInput = document.getElementById('instanceImportFileInput');
+        var parseBtn = document.getElementById('instanceImportParseBtn');
+        var preview = document.getElementById('instanceImportPreview');
+        var sourceNameEl = document.getElementById('instanceImportSourceName');
+        var titleInput = document.getElementById('instanceImportTitleInput');
+        var summaryInput = document.getElementById('instanceImportSummaryInput');
+        var picsEl = document.getElementById('instanceImportPics');
+        var platesEl = document.getElementById('instanceImportPlates');
+        var saveBtn = document.getElementById('instanceImportSaveBtn');
+        var msgEl = document.getElementById('instanceImportMsg');
+        if (!bar || !openBtn || !modal || !closeBtn || !cancelBtn || !fileInput || !parseBtn || !saveBtn) return;
+
+        var parsedFile = null;
+
+        function normalize3mfName(name) {
+            return String(name || '').replace(/^s\d+_/i, '');
+        }
+
+        function stem(name) {
+            var n = normalize3mfName(name);
+            var i = n.lastIndexOf('.');
+            return i > 0 ? n.slice(0, i) : n;
+        }
+
+        function renderImageList(el, items, type) {
+            if (!el) return;
+            el.innerHTML = '';
+            if (!items || !items.length) {
+                var empty = document.createElement('div');
+                empty.className = 'inst-import-gallery-item';
+                empty.innerHTML = '<div class="caption">无</div>';
+                el.appendChild(empty);
+                return;
+            }
+            items.forEach(function (item, idx) {
+                var url = '';
+                var cap = '';
+                if (type === 'pic') {
+                    url = item && item.previewUrl ? item.previewUrl : '';
+                    cap = '图 ' + (idx + 1);
+                } else {
+                    url = item && item.thumbnailPreviewUrl ? item.thumbnailPreviewUrl : '';
+                    cap = '盘 ' + (item && item.index ? item.index : (idx + 1));
+                }
+                if (!url) return;
+                var wrap = document.createElement('div');
+                wrap.className = 'inst-import-gallery-item';
+                var img = document.createElement('img');
+                img.src = url;
+                img.alt = cap;
+                var caption = document.createElement('div');
+                caption.className = 'caption';
+                caption.textContent = cap;
+                wrap.appendChild(img);
+                wrap.appendChild(caption);
+                el.appendChild(wrap);
+            });
+            if (!el.children.length) {
+                var empty2 = document.createElement('div');
+                empty2.className = 'inst-import-gallery-item';
+                empty2.innerHTML = '<div class="caption">无</div>';
+                el.appendChild(empty2);
+            }
+        }
 
         function setMsg(text, isError) {
             if (!msgEl) return;
@@ -864,22 +935,47 @@
             else msgEl.classList.remove('error');
         }
 
+        function resetModal() {
+            parsedFile = null;
+            fileInput.value = '';
+            if (preview) preview.classList.add('hidden');
+            if (sourceNameEl) sourceNameEl.textContent = '-';
+            if (titleInput) titleInput.value = '';
+            if (summaryInput) summaryInput.value = '';
+            renderImageList(picsEl, [], 'pic');
+            renderImageList(platesEl, [], 'plate');
+            saveBtn.disabled = true;
+            setMsg('');
+        }
+
+        function openModal() {
+            resetModal();
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+        }
+
         if (!canUseBackendApi() || location.protocol === 'file:') {
             bar.classList.add('hidden');
             return;
         }
         bar.classList.remove('hidden');
 
-        pickBtn.addEventListener('click', function () {
-            inputEl.click();
-        });
-        inputEl.addEventListener('change', function () {
-            var f = inputEl.files && inputEl.files[0];
-            if (fileNameEl) fileNameEl.textContent = f ? f.name : '未选择文件';
+        openBtn.addEventListener('click', openModal);
+        closeBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closeModal();
         });
 
-        uploadBtn.addEventListener('click', async function () {
-            var f = inputEl.files && inputEl.files[0];
+        parseBtn.addEventListener('click', async function () {
+            var f = fileInput.files && fileInput.files[0];
             if (!f) {
                 setMsg('请先选择 3MF 文件', true);
                 return;
@@ -888,12 +984,12 @@
                 setMsg('仅支持 .3mf 文件', true);
                 return;
             }
-            var fd = new FormData();
-            fd.append('file', f);
-            uploadBtn.disabled = true;
-            setMsg('正在识别并追加...');
+            parseBtn.disabled = true;
+            setMsg('正在识别配置信息...');
             try {
-                var res = await fetch(apiUrl('/api/models/' + encodeURIComponent(MODEL_DIR) + '/instances/import-3mf'), {
+                var fd = new FormData();
+                fd.append('files', f);
+                var res = await fetch(apiUrl('/api/manual/3mf/parse'), {
                     method: 'POST',
                     body: fd
                 });
@@ -902,14 +998,63 @@
                     throw new Error(txt || ('HTTP ' + res.status));
                 }
                 var data = await res.json();
-                setMsg((data && data.message) || '已追加打印配置');
-                inputEl.value = '';
-                if (fileNameEl) fileNameEl.textContent = '未选择文件';
-                setTimeout(function () { location.reload(); }, 500);
+                var draft = data && data.draft ? data.draft : null;
+                var inst = draft && Array.isArray(draft.instances) ? draft.instances[0] : null;
+                if (!inst) throw new Error('未识别到实例配置');
+                parsedFile = f;
+                if (preview) preview.classList.remove('hidden');
+                if (sourceNameEl) sourceNameEl.textContent = normalize3mfName(inst.sourceFileName || inst.name || f.name);
+                if (titleInput) titleInput.value = inst.title || stem(f.name);
+                if (summaryInput) summaryInput.value = inst.summary || '';
+                renderImageList(picsEl, inst.pictures || [], 'pic');
+                renderImageList(platesEl, inst.plates || [], 'plate');
+                saveBtn.disabled = false;
+                setMsg('识别完成，可修改后保存');
             } catch (e) {
-                setMsg('追加失败：' + (e.message || e), true);
+                setMsg('识别失败：' + (e.message || e), true);
             } finally {
-                uploadBtn.disabled = false;
+                parseBtn.disabled = false;
+            }
+        });
+
+        saveBtn.addEventListener('click', async function () {
+            var f = parsedFile || (fileInput.files && fileInput.files[0]);
+            if (!f) {
+                setMsg('请先选择并识别 3MF 文件', true);
+                return;
+            }
+            var title = titleInput ? String(titleInput.value || '').trim() : '';
+            var summary = summaryInput ? String(summaryInput.value || '').trim() : '';
+            if (!title) {
+                setMsg('配置标题不能为空', true);
+                return;
+            }
+            saveBtn.disabled = true;
+            parseBtn.disabled = true;
+            setMsg('正在保存配置...');
+            try {
+                var fd2 = new FormData();
+                fd2.append('file', f);
+                fd2.append('title', title);
+                fd2.append('summary', summary);
+                var res2 = await fetch(apiUrl('/api/models/' + encodeURIComponent(MODEL_DIR) + '/instances/import-3mf'), {
+                    method: 'POST',
+                    body: fd2
+                });
+                if (!res2.ok) {
+                    var txt2 = await res2.text();
+                    throw new Error(txt2 || ('HTTP ' + res2.status));
+                }
+                var data2 = await res2.json();
+                setMsg((data2 && data2.message) || '已追加打印配置');
+                setTimeout(function () {
+                    closeModal();
+                    location.reload();
+                }, 450);
+            } catch (e2) {
+                setMsg('保存失败：' + (e2.message || e2), true);
+                saveBtn.disabled = false;
+                parseBtn.disabled = false;
             }
         });
     }
