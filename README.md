@@ -86,6 +86,8 @@ docker run -d \
   sonicming/mw-archiver:latest
 ```
 
+如果网络问题可以更换镜像源 `docker.1ms.run/sonicming/mw-archiver:latest`
+
 ```bash
 # 本地构建
 bash docker_build.sh
