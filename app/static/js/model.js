@@ -884,9 +884,26 @@
         if (!bar || !openBtn || !modal || !closeBtn || !cancelBtn || !fileInput || !parseBtn || !saveBtn) return;
 
         var parsedFile = null;
+        var parseDraftSessionId = '';
 
         function normalize3mfName(name) {
             return String(name || '').replace(/^s\d+_/i, '');
+        }
+
+        function normalizeSessionId(value) {
+            var sid = String(value || '').trim();
+            return /^[a-f0-9]{32}$/.test(sid) ? sid : '';
+        }
+
+        async function discardParseDraft(sessionId) {
+            var sid = normalizeSessionId(sessionId);
+            if (!sid) return;
+            try {
+                await fetch(apiUrl('/api/manual/drafts/' + encodeURIComponent(sid)), {
+                    method: 'DELETE'
+                });
+            } catch (_) { }
+            if (parseDraftSessionId === sid) parseDraftSessionId = '';
         }
 
         function stem(name) {
@@ -945,6 +962,7 @@
 
         function resetModal() {
             parsedFile = null;
+            parseDraftSessionId = '';
             fileInput.value = '';
             if (preview) preview.classList.add('hidden');
             if (sourceNameEl) sourceNameEl.textContent = '-';
@@ -964,9 +982,12 @@
         }
 
         function closeModal() {
+            var sid = parseDraftSessionId;
             modal.classList.remove('active');
             modal.setAttribute('aria-hidden', 'true');
             document.body.style.overflow = '';
+            resetModal();
+            discardParseDraft(sid);
         }
 
         if (!canUseBackendApi() || location.protocol === 'file:') {
@@ -995,6 +1016,7 @@
             parseBtn.disabled = true;
             setMsg('正在识别配置信息...');
             try {
+                var prevSid = parseDraftSessionId;
                 var fd = new FormData();
                 fd.append('files', f);
                 var res = await fetch(apiUrl('/api/manual/3mf/parse'), {
@@ -1009,6 +1031,11 @@
                 var draft = data && data.draft ? data.draft : null;
                 var inst = draft && Array.isArray(draft.instances) ? draft.instances[0] : null;
                 if (!inst) throw new Error('未识别到实例配置');
+                var newSid = normalizeSessionId(draft && draft.sessionId ? draft.sessionId : '');
+                parseDraftSessionId = newSid;
+                if (prevSid && prevSid !== newSid) {
+                    discardParseDraft(prevSid);
+                }
                 parsedFile = f;
                 if (preview) preview.classList.remove('hidden');
                 if (sourceNameEl) sourceNameEl.textContent = normalize3mfName(inst.sourceFileName || inst.name || f.name);
@@ -1055,6 +1082,9 @@
                 }
                 var data2 = await res2.json();
                 setMsg((data2 && data2.message) || '已追加打印配置');
+                if (parseDraftSessionId) {
+                    discardParseDraft(parseDraftSessionId);
+                }
                 setTimeout(function () {
                     closeModal();
                     location.reload();

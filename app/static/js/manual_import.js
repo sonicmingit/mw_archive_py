@@ -31,6 +31,47 @@
   const parseInstancesBtn = document.getElementById('manualParseInstances');
 
   let parsedDraft = null;
+  const tempDraftSessionIds = new Set();
+
+  function normalizeSessionId(value) {
+    const sid = String(value || '').trim();
+    return /^[a-f0-9]{32}$/.test(sid) ? sid : '';
+  }
+
+  function rememberTempDraftSession(sessionId) {
+    const sid = normalizeSessionId(sessionId);
+    if (!sid) return;
+    if (draftSessionInput && normalizeSessionId(draftSessionInput.value) === sid) return;
+    tempDraftSessionIds.add(sid);
+  }
+
+  async function cleanupDraftSession(sessionId) {
+    const sid = normalizeSessionId(sessionId);
+    if (!sid) return;
+    try {
+      await fetch(`/api/manual/drafts/${encodeURIComponent(sid)}`, { method: 'DELETE' });
+    } catch (_) {}
+    tempDraftSessionIds.delete(sid);
+  }
+
+  function collectAllDraftSessionIds() {
+    const ids = [];
+    if (draftSessionInput) {
+      const mainSid = normalizeSessionId(draftSessionInput.value);
+      if (mainSid) ids.push(mainSid);
+    }
+    tempDraftSessionIds.forEach((sid) => ids.push(sid));
+    return Array.from(new Set(ids));
+  }
+
+  function resetModalFormState() {
+    if (form) form.reset();
+    if (summaryEditor) summaryEditor.innerHTML = '';
+    syncSummaryFields();
+    clearInstanceEntries();
+    clearDraftPreview();
+    setMsg('');
+  }
 
   function setMsg(text, isError, isSuccess) {
     if (!msgEl) return;
@@ -108,16 +149,21 @@
   }
 
   function openModal() {
+    resetModalFormState();
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
   }
 
   function closeModal() {
+    const ids = collectAllDraftSessionIds();
+    resetModalFormState();
     modal.classList.remove('show');
     modal.setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
-    setMsg('');
+    ids.forEach((sid) => {
+      cleanupDraftSession(sid);
+    });
   }
 
   openers.forEach((btn) => btn.addEventListener('click', openModal));
@@ -387,6 +433,7 @@
     }
     setMsg('正在解析 3MF ...');
     try {
+      const prevSid = draftSessionInput ? normalizeSessionId(draftSessionInput.value) : '';
       const res = await fetch('/api/manual/3mf/parse', { method: 'POST', body: fd });
       if (!res.ok) {
         const txt = await res.text();
@@ -396,6 +443,7 @@
       const draft = data && data.draft ? data.draft : null;
       if (!draft) throw new Error('解析结果为空');
       parsedDraft = draft;
+      const newSid = normalizeSessionId(draft.sessionId || '');
 
       if (draftSessionInput) draftSessionInput.value = draft.sessionId || '';
       if (draftTitle) draftTitle.textContent = draft.title || '未命名模型';
@@ -419,6 +467,9 @@
       const sourceInput = form.querySelector('[name="sourceLink"]');
       if (sourceInput && !sourceInput.value.trim()) sourceInput.value = '';
 
+      if (prevSid && prevSid !== newSid) {
+        cleanupDraftSession(prevSid);
+      }
       setMsg('3MF 识别完成，可补充信息后保存归档', false, true);
     } catch (err) {
       setMsg(`3MF 识别失败：${err.message || err}`, true);
@@ -454,6 +505,7 @@
       const data = await res.json();
       const draft = data && data.draft ? data.draft : null;
       if (!draft || !Array.isArray(draft.instances)) throw new Error('实例识别结果为空');
+      rememberTempDraftSession(draft.sessionId || '');
       const mapped = mapParsedInstancesToEntries(draft.instances);
       mapped.forEach((inst, idx) => applyInstanceParsedResult(instanceEntries[idx], inst, idx));
       setMsg('实例识别完成：已填充实例标题/介绍，并回显配置图片', false, true);
@@ -478,6 +530,14 @@
   if (parse3mfBtn) parse3mfBtn.addEventListener('click', parse3mfFiles);
   if (parseInstancesBtn) parseInstancesBtn.addEventListener('click', parseAddedInstanceFiles);
   syncSummaryFields();
+
+  window.addEventListener('beforeunload', () => {
+    collectAllDraftSessionIds().forEach((sid) => {
+      try {
+        navigator.sendBeacon(`/api/manual/drafts/${encodeURIComponent(sid)}/discard`, '');
+      } catch (_) {}
+    });
+  });
 
   if (form) {
     form.addEventListener('submit', async (e) => {

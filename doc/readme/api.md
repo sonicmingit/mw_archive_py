@@ -17,9 +17,12 @@
    - 3.2 [删除模型](#32-删除模型)
    - 3.3 [获取/上传模型附件](#33-获取上传模型附件)
    - 3.4 [获取/上传模型实打图片](#34-获取上传模型实打图片)
+   - 3.5 [按实例 ID 下载 3MF](#35-按实例-id-下载-3mf)
 4. [手动导入与解析 API](#4-手动导入与解析-api)
    - 4.1 [解析本地 3MF 草稿](#41-解析本地-3mf-草稿)
    - 4.2 [提交手动导入模型](#42-提交手动导入模型)
+   - 4.3 [删除手动导入草稿缓存](#43-删除手动导入草稿缓存)
+   - 4.4 [草稿缓存丢弃（Beacon）](#44-草稿缓存丢弃beacon)
 5. [重试与记录修补 API](#5-重试与记录修补-api)
    - 5.1 [获取缺失 3MF 文件的日志列表](#51-获取缺失-3mf-文件的日志列表)
    - 5.2 [批量重试下载缺失文件](#52-批量重试下载缺失文件)
@@ -142,14 +145,29 @@
 ## 3. 模型管理与维护 API
 
 ### 3.1 重建归档静态页面
-当更新了主模板或者需要批量强制更新每个模型本地的 HTML 时使用。
+当更新了主模板或者需要批量维护历史归档页面时使用。  
+当前版本还会同步扫描 `instances/`，尝试修正 `meta.json` 中实例 `fileName` 映射。
 
 - **URL:** `/api/archive/rebuild-pages`
 - **Method:** `POST`
 - **Content-Type:** `application/json`
 
 **请求参数 (Body) [可全空]:**
-无强制必填参数。若要强制覆盖可传入配置参数字典。
+| 字段名称 | 类型 | 必填 | 说明 |
+|----------|------|------|------|
+| force    | bool | 否 | 强制重建 |
+| backup   | bool | 否 | 备份旧 index.html |
+| dry_run  | bool | 否 | 仅预览，不实际写文件 |
+
+**响应关键字段:**
+| 字段名称 | 类型 | 说明 |
+|----------|------|------|
+| processed | int | 扫描到的模型目录数 |
+| updated | int | 实际更新的目录数 |
+| skipped | int | 跳过目录数 |
+| failed | int | 失败目录数 |
+| fixed_instance_files | int | 已修正实例 `fileName` 映射数量 |
+| unresolved_instance_files | int | 未能定位实例文件的数量 |
 
 ### 3.2 删除模型
 在本地彻底删除对应的模型目录及其附带的所有文件。
@@ -189,6 +207,22 @@
 
 **POST 请求参数同 3.3，上传字段名为 `file`。**
 
+### 3.5 按实例 ID 下载 3MF
+用于模型详情页稳定下载 3MF，避免前端按标题/文件名拼接导致错链。
+
+- **URL:** `/api/models/{model_dir}/instances/{inst_id}/download`
+- **Method:** `GET`
+
+**路径参数 (Path Variables):**
+| 字段名称 | 类型 | 说明 |
+|----------|------|------|
+| model_dir | string | 模型目录名，例如 `MW_12345_ModelA` |
+| inst_id | int | 实例 ID（`meta.instances[*].id`） |
+
+说明:
+- 接口会按实例信息自动匹配真实文件并返回下载。
+- 若匹配成功且 `fileName` 不一致，会自动回填 `meta.json`（运行时自愈）。
+
 ---
 
 ## 4. 手动导入与解析 API
@@ -222,6 +256,23 @@
 | cover    | file   | 否 | 模型封面图 |
 | design_images | file array | 否 | 其他设计渲染图 |
 | _(及其它如3mf草稿ID等配置项)_ | | | |
+
+### 4.3 删除手动导入草稿缓存
+用于清理 `app/tmp/manual_drafts/{session_id}` 的草稿目录（识别后不保存场景）。
+
+- **URL:** `/api/manual/drafts/{session_id}`
+- **Method:** `DELETE`
+
+**路径参数 (Path Variables):**
+| 字段名称 | 类型 | 说明 |
+|----------|------|------|
+| session_id | string | 32 位十六进制草稿 ID |
+
+### 4.4 草稿缓存丢弃（Beacon）
+与 4.3 功能相同，主要用于前端 `navigator.sendBeacon` 在页面离开时触发清理。
+
+- **URL:** `/api/manual/drafts/{session_id}/discard`
+- **Method:** `POST`
 
 ---
 

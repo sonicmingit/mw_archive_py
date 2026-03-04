@@ -421,6 +421,20 @@ def load_manual_draft(session_id: str) -> tuple[Path, dict]:
     return session_dir, data
 
 
+def discard_manual_draft(session_id: str) -> bool:
+    sid = (session_id or "").strip()
+    if not sid or not re.fullmatch(r"[a-f0-9]{32}", sid):
+        return False
+    session_dir = (MANUAL_DRAFT_ROOT / sid).resolve()
+    root = MANUAL_DRAFT_ROOT.resolve()
+    if not str(session_dir).startswith(str(root)):
+        return False
+    if not session_dir.exists() or not session_dir.is_dir():
+        return False
+    shutil.rmtree(session_dir, ignore_errors=True)
+    return True
+
+
 def next_instance_id(instances: List[dict]) -> int:
     max_id = 0
     for inst in instances or []:
@@ -1490,6 +1504,18 @@ async def api_manual_parse_3mf(files: List[UploadFile] = File(...)):
     }
 
 
+@app.delete("/api/manual/drafts/{session_id}")
+async def api_delete_manual_draft(session_id: str):
+    removed = discard_manual_draft(session_id)
+    return {"status": "ok", "removed": removed}
+
+
+@app.post("/api/manual/drafts/{session_id}/discard")
+async def api_discard_manual_draft(session_id: str):
+    removed = discard_manual_draft(session_id)
+    return {"status": "ok", "removed": removed}
+
+
 @app.post("/api/models/{model_dir}/instances/import-3mf")
 async def api_model_add_instance_from_3mf(
     model_dir: str,
@@ -1969,6 +1995,13 @@ async def api_manual_import(
     }
     index_html = build_index_html(meta, assets)
     (model_dir / "index.html").write_text(index_html, encoding="utf-8")
+
+    # 手动导入成功后，清理对应草稿临时目录，避免 manual_drafts 持续堆积
+    if draft_session_dir is not None and draft_session_dir.exists():
+        try:
+            shutil.rmtree(draft_session_dir, ignore_errors=True)
+        except Exception as e:
+            logger.warning("清理手动导入草稿目录失败: %s (%s)", draft_session_dir, e)
 
     logger.info("手动导入模型完成: %s", model_dir)
     return {"status": "ok", "base_name": base_name, "work_dir": str(model_dir.resolve())}
