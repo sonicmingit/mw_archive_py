@@ -31,6 +31,16 @@ from three_mf_parser import (
     build_draft_payload,
     parse_3mf_to_session,
 )
+from tg_push import (
+    DEFAULT_TELEGRAM_CONFIG,
+    format_archive_failed_message,
+    format_archive_success_message,
+    format_cookie_alert_message,
+    is_probable_cookie_issue,
+    mask_bot_token,
+    normalize_telegram_config,
+    send_telegram_message,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
@@ -41,6 +51,7 @@ DEFAULT_CONFIG = {
     "download_dir": "./data",
     "cookie_file": "./cookie.txt",
     "logs_dir": "./logs",
+    "telegram": dict(DEFAULT_TELEGRAM_CONFIG),
 }
 MANUAL_COUNTER_LOCK = threading.Lock()
 MANUAL_COUNTER_FILE = "_manual_import_counter.json"
@@ -735,6 +746,10 @@ def load_config():
     cfg["download_dir"] = cfg_download
     cfg["cookie_file"] = cfg_cookie
     cfg["logs_dir"] = cfg_logs
+    tg_new = normalize_telegram_config(cfg.get("telegram"))
+    if cfg.get("telegram") != tg_new:
+        changed = True
+    cfg["telegram"] = tg_new
     if "manual_local_model_counter" in cfg:
         del cfg["manual_local_model_counter"]
         changed = True
@@ -743,6 +758,15 @@ def load_config():
     if changed:
         CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return cfg
+
+
+def save_config(cfg: dict):
+    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def update_runtime_config(cfg: dict):
+    global CFG
+    CFG = cfg
 
 
 def load_gallery_flags() -> dict:
@@ -781,6 +805,17 @@ def write_cookie(cfg, cookie: str):
     # 额外记录更新时间
     with (Path(cfg["logs_dir"]) / "cookie.log").open("a", encoding="utf-8") as f:
         f.write(f"{datetime.now().isoformat()}\tupdate\n")
+
+
+def push_tg_message(text: str):
+    try:
+        ok, info = send_telegram_message(CFG, text)
+        if ok:
+            logger.info("Telegram 推送成功")
+        else:
+            logger.info("Telegram 推送跳过/失败: %s", info)
+    except Exception as e:
+        logger.warning("Telegram 推送异常: %s", e)
 
 
 def parse_missing(cfg) -> List[dict]:
@@ -1185,12 +1220,21 @@ async def api_config():
     cfg = load_config()
     cookie_path = Path(cfg["cookie_file"])
     cookie_time = cookie_path.stat().st_mtime if cookie_path.exists() else None
+    tg = normalize_telegram_config(cfg.get("telegram"))
     return {
         "download_dir": cfg["download_dir"],
         "logs_dir": cfg["logs_dir"],
         "cookie_file": cfg["cookie_file"],
         "manual_local_model_counter": read_manual_counter(cfg),
         "cookie_updated_at": datetime.fromtimestamp(cookie_time).isoformat() if cookie_time else None,
+        "telegram": {
+            "enabled": bool(tg.get("enabled")),
+            "bot_token_masked": mask_bot_token(str(tg.get("bot_token") or "")),
+            "chat_id": str(tg.get("chat_id") or ""),
+            "notify_archive_success": bool(tg.get("notify_archive_success")),
+            "notify_archive_failed": bool(tg.get("notify_archive_failed")),
+            "notify_cookie_alert": bool(tg.get("notify_cookie_alert")),
+        },
     }
 
 
@@ -1203,6 +1247,64 @@ async def api_cookie(body: dict):
     return {"status": "ok", "updated_at": datetime.now().isoformat()}
 
 
+@app.get("/api/telegram/config")
+async def api_get_telegram_config():
+    cfg = load_config()
+    tg = normalize_telegram_config(cfg.get("telegram"))
+    return {
+        "enabled": bool(tg.get("enabled")),
+        "bot_token_masked": mask_bot_token(str(tg.get("bot_token") or "")),
+        "chat_id": str(tg.get("chat_id") or ""),
+        "notify_archive_success": bool(tg.get("notify_archive_success")),
+        "notify_archive_failed": bool(tg.get("notify_archive_failed")),
+        "notify_cookie_alert": bool(tg.get("notify_cookie_alert")),
+    }
+
+
+@app.post("/api/telegram/config")
+async def api_set_telegram_config(body: dict):
+    if not isinstance(body, dict):
+        raise HTTPException(400, "请求体格式无效")
+    cfg = load_config()
+    current = normalize_telegram_config(cfg.get("telegram"))
+    merged = dict(current)
+    for k in [
+        "enabled",
+        "bot_token",
+        "chat_id",
+        "notify_archive_success",
+        "notify_archive_failed",
+        "notify_cookie_alert",
+    ]:
+        if k in body:
+            merged[k] = body.get(k)
+    merged = normalize_telegram_config(merged)
+    cfg["telegram"] = merged
+    save_config(cfg)
+    update_runtime_config(cfg)
+    return {
+        "status": "ok",
+        "telegram": {
+            "enabled": bool(merged.get("enabled")),
+            "bot_token_masked": mask_bot_token(str(merged.get("bot_token") or "")),
+            "chat_id": str(merged.get("chat_id") or ""),
+            "notify_archive_success": bool(merged.get("notify_archive_success")),
+            "notify_archive_failed": bool(merged.get("notify_archive_failed")),
+            "notify_cookie_alert": bool(merged.get("notify_cookie_alert")),
+        },
+    }
+
+
+@app.post("/api/telegram/test")
+async def api_test_telegram_push(body: dict = None):
+    payload = body or {}
+    msg = str(payload.get("message") or "").strip() or "✅ Telegram 推送测试成功"
+    ok, info = send_telegram_message(CFG, msg)
+    if not ok:
+        raise HTTPException(400, f"推送失败: {info}")
+    return {"status": "ok"}
+
+
 @app.post("/api/archive")
 async def api_archive(body: dict):
     url = (body or {}).get("url", "").strip()
@@ -1210,6 +1312,9 @@ async def api_archive(body: dict):
         raise HTTPException(400, "url 不能为空")
     cookie = read_cookie(CFG)
     if not cookie:
+        tg_cfg = normalize_telegram_config(CFG.get("telegram"))
+        if tg_cfg.get("notify_cookie_alert"):
+            push_tg_message(format_cookie_alert_message(url, "归档失败：未设置 Cookie"))
         raise HTTPException(400, "请先设置 cookie")
     try:
         reset_tmp_dir(TMP_DIR)
@@ -1227,6 +1332,11 @@ async def api_archive(body: dict):
         result["work_dir"] = str(final_dir.resolve())
         action = result.get("action") or "created"
         result["message"] = "模型已更新成功" if action == "updated" else "模型归档成功"
+
+        tg_cfg = normalize_telegram_config(CFG.get("telegram"))
+        if tg_cfg.get("notify_archive_success"):
+            push_tg_message(format_archive_success_message(url, result))
+
         return {"status": "ok", **result}
     except requests.HTTPError as e:
         # 输出更多上下文（状态码与前 300 字符）
@@ -1237,9 +1347,19 @@ async def api_archive(body: dict):
             logger.error("归档失败 HTTP %s: %s", resp.status_code, snippet)
         else:
             logger.error("归档失败 HTTP: %s", e)
+        tg_cfg = normalize_telegram_config(CFG.get("telegram"))
+        if tg_cfg.get("notify_archive_failed"):
+            push_tg_message(format_archive_failed_message(url, f"{e} {snippet}".strip()))
+        if tg_cfg.get("notify_cookie_alert") and is_probable_cookie_issue(f"{e} {snippet}"):
+            push_tg_message(format_cookie_alert_message(url, f"{e} {snippet}".strip()))
         raise HTTPException(500, f"归档失败: {e} 片段: {snippet}")
     except Exception as e:
         logger.exception("归档失败")
+        tg_cfg = normalize_telegram_config(CFG.get("telegram"))
+        if tg_cfg.get("notify_archive_failed"):
+            push_tg_message(format_archive_failed_message(url, str(e)))
+        if tg_cfg.get("notify_cookie_alert") and is_probable_cookie_issue(str(e)):
+            push_tg_message(format_cookie_alert_message(url, str(e)))
         raise HTTPException(500, f"归档失败: {e}")
     finally:
         try:
@@ -1271,6 +1391,9 @@ async def api_missing():
 async def api_redownload_missing():
     cookie = read_cookie(CFG)
     if not cookie:
+        tg_cfg = normalize_telegram_config(CFG.get("telegram"))
+        if tg_cfg.get("notify_cookie_alert"):
+            push_tg_message(format_cookie_alert_message("", "缺失 3MF 重试失败：未设置 Cookie"))
         raise HTTPException(400, "请先设置 cookie")
     try:
         result = retry_missing_downloads(CFG, cookie)
