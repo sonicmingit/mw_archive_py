@@ -155,9 +155,8 @@
         var explicit = toName((inst && (inst.fileName || inst.name || inst.sourceFileName || inst.localName)) || '');
         if (explicit) return explicit;
 
-        // 与 Python archiver.pick_instance_filename 保持一致：
-        // base = sanitize(name || sourceFileName || title || id)
-        var baseName = (inst && (inst.name || inst.sourceFileName || inst.title)) || '';
+        // 优先按真实文件名字段推断，避免回退到 title 造成错链
+        var baseName = (inst && (inst.name || inst.sourceFileName || inst.fileName)) || '';
         if (!baseName && inst) baseName = String(inst.id || 'model');
         // 简单 sanitize：去除文件系统不允许的字符
         var base = String(baseName).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+$/, '');
@@ -177,6 +176,11 @@
             ext = '.' + ext;
         }
         return base + ext;
+    }
+
+    function pickInstanceFilenameStrict(inst) {
+        var n = toName((inst && (inst.fileName || inst.name || inst.sourceFileName || inst.localName)) || '');
+        return n || '';
     }
 
     // ============ DOM 渲染 ============
@@ -380,12 +384,29 @@
         var pictures = inst.pictures || [];
         var filaments = inst.instanceFilaments || [];
 
-        var fileName = pickInstanceFilename(inst, inst.name || '');
-        var dlById = '';
-        if (inst && inst.id !== undefined && inst.id !== null && String(inst.id).trim() !== '') {
-            dlById = apiUrl('/api/models/' + encodeURIComponent(MODEL_DIR) + '/instances/' + encodeURIComponent(String(inst.id)) + '/download');
+        var isFileProtocol = location.protocol === 'file:';
+        var isOfflineMetaPage = !isFileProtocol && !!window.__OFFLINE_META__;
+        var hasInstId = inst && inst.id !== undefined && inst.id !== null && String(inst.id).trim() !== '';
+        var hasModelDir = !!String(MODEL_DIR || '').trim();
+
+        // 关键规则：
+        // 1) 直开 file:// 与 /files 离线页（内嵌 __OFFLINE_META__）都严格用真实文件名字段
+        // 2) 在线模式才允许兼容推断
+        var fileName = (isFileProtocol || isOfflineMetaPage)
+            ? pickInstanceFilenameStrict(inst)
+            : pickInstanceFilename(inst, inst.name || '');
+
+        var dlHrefLocal = '';
+        if (!isFileProtocol && hasInstId && hasModelDir) {
+            // HTTP 场景优先实例下载接口，避免任何 title/name 偏差
+            dlHrefLocal = apiUrl('/api/models/' + encodeURIComponent(MODEL_DIR) + '/instances/' + encodeURIComponent(String(inst.id)) + '/download');
+        } else if (!isFileProtocol && fileName && hasModelDir) {
+            // 兜底走后端文件接口（仍不直接拼 /files 路径）
+            dlHrefLocal = apiUrl('/api/models/' + encodeURIComponent(MODEL_DIR) + '/file/instances/' + encodeURIComponent(fileName));
+        } else if (fileName) {
+            // 仅 file:// 场景使用相对本地路径
+            dlHrefLocal = fileUrl(MODEL_DIR, 'instances/' + fileName);
         }
-        var dlHrefLocal = dlById || fileUrl(MODEL_DIR, 'instances/' + fileName);
 
         function toHex(str) {
             var utf8Str = unescape(encodeURIComponent(str));
@@ -397,8 +418,27 @@
             }
             return hex;
         }
-        var rawRelPath = MODEL_DIR + '/instances/' + fileName;
-        var bambuProxyUrl = dlById || (window.location.origin + '/api/bambu/download/' + toHex(rawRelPath) + '.3mf');
+        var rawRelPath = MODEL_DIR + '/instances/' + (fileName || '');
+        // 仅在线模式显示 Bambu 打印按钮：
+        // - v2 在线页（无 __OFFLINE_META__）显示
+        // - /files 离线页与 file:// 直开隐藏
+        var showBambuButton = !isFileProtocol && !isOfflineMetaPage;
+
+        var bambuProxyUrl = '';
+        if (!isFileProtocol && hasInstId && hasModelDir) {
+            bambuProxyUrl = apiUrl('/api/bambu/model/' + encodeURIComponent(MODEL_DIR) + '/instance/' + encodeURIComponent(String(inst.id)) + '.3mf');
+        } else if (!isFileProtocol && fileName && hasModelDir) {
+            bambuProxyUrl = apiUrl('/api/models/' + encodeURIComponent(MODEL_DIR) + '/file/instances/' + encodeURIComponent(fileName));
+        } else if (isFileProtocol) {
+            bambuProxyUrl = fileName ? new URL(fileUrl(MODEL_DIR, 'instances/' + fileName), window.location.href).href : '';
+        } else {
+            bambuProxyUrl = window.location.origin + '/api/bambu/download/' + toHex(rawRelPath) + '.3mf';
+        }
+        // Bambu Studio 需要可直接访问的绝对 http(s) URL，不能是相对路径
+        var bambuProxyUrlAbs = String(bambuProxyUrl || '');
+        if (bambuProxyUrlAbs && !/^https?:\/\//i.test(bambuProxyUrlAbs)) {
+            bambuProxyUrlAbs = window.location.origin + bambuProxyUrlAbs;
+        }
 
         // 耗材 chips
         var chipsHtml = '';
@@ -478,7 +518,7 @@
             '</div>' +
             (dlHrefLocal ? '<div class="inst-actions">' +
                 (platesDataHtml ? '<button class="inst-btn inst-details" onclick="openPlatesModal(this)" data-plates="' + platesDataHtml + '"><i class="fas fa-list"></i> 详情</button>' : '') +
-                '<a class="inst-btn inst-bambu" href="bambustudio://open?file=' + encodeURIComponent(bambuProxyUrl) + '" title="在 Bambu Studio 中打开"><i class="fas fa-cube"></i> 打印</a>' +
+                (showBambuButton ? '<a class="inst-btn inst-bambu" href="bambustudio://open?file=' + encodeURIComponent(bambuProxyUrlAbs) + '" title="在 Bambu Studio 中打开"><i class="fas fa-cube"></i> 打印</a>' : '') +
                 '<a class="inst-btn inst-local" href="' + dlHrefLocal + '" target="_blank" rel="noreferrer" title="下载资源"><i class="fas fa-download"></i> 下载</a>' +
                 '</div>' : '') +
             '</div>' +
@@ -624,6 +664,37 @@
                 overlayImg.src = '';
             }
         });
+    }
+
+    // ============ Bambu 打开防重入 ============
+    function initBambuOpenGuard() {
+        if (window.__mw_bambu_guard_inited) return;
+        window.__mw_bambu_guard_inited = true;
+
+        var lastHref = '';
+        var lastTs = 0;
+
+        document.addEventListener('click', function (e) {
+            var target = e.target;
+            if (!target || !target.closest) return;
+            var link = target.closest('a.inst-bambu');
+            if (!link) return;
+
+            var href = String(link.getAttribute('href') || '');
+            if (!/^bambustudio:\/\//i.test(href)) return;
+
+            // 统一由脚本触发，避免浏览器偶发重复拉起协议
+            e.preventDefault();
+            e.stopPropagation();
+
+            var now = Date.now();
+            if (href === lastHref && (now - lastTs) < 1500) {
+                return;
+            }
+            lastHref = href;
+            lastTs = now;
+            window.location.href = href;
+        }, true);
     }
 
     // ============ 附件 ============
@@ -1144,6 +1215,7 @@
             initAttachments();
             initPrinted();
             initInstanceImport();
+            initBambuOpenGuard();
 
             // 仅在 file:// 直开且无法调用本地 API 时隐藏上传区块
             if (!canUseBackendApi()) {

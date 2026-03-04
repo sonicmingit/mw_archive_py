@@ -24,7 +24,7 @@
       <div>
         <h1>
           <i class="fas fa-archive"></i> MakerWorld 归档控制台
-          <span class="version">v5.1.1</span>
+          <span class="version">v5.1.2</span>
         </h1>
       </div>
       <div class="config-links">
@@ -427,7 +427,7 @@
       const res = await fetch('/api/archive/rebuild-pages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({ force: true })
       });
       if (res.ok) {
         const data = await res.json();
@@ -435,6 +435,12 @@
         appendLog(`实例映射：修正 ${data.fixed_instance_files || 0}，未定位 ${data.unresolved_instance_files || 0}`);
         if (data.kept_v1) {
           appendLog(`已保留旧版页面：${data.kept_v1} 个目录生成 index_v1.0.html`);
+        }
+        if (data.details && data.details.length) {
+          const failRows = data.details.filter(x => x && x.status === 'fail');
+          if (failRows.length) {
+            appendLog(`失败目录详情：${failRows.map(x => x.dir + ' -> ' + x.message).join(' | ')}`);
+          }
         }
         alert(`修复完成：处理 ${data.processed}，更新 ${data.updated}，跳过 ${data.skipped}，失败 ${data.failed}\n实例映射修正 ${data.fixed_instance_files || 0}，未定位 ${data.unresolved_instance_files || 0}`);
       } else {

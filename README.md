@@ -5,14 +5,15 @@
 一个用于归档 MakerWorld 模型到本地的项目，支持模型采集、离线页面生成、模型库浏览、缺失 3MF 重试，以及浏览器插件一键归档。
 
 ## 当前版本
-- `v5.1.1`（2026-03-04）
-- 更新说明见 [doc/logs/v5.1.1_update_log.md](doc/logs/v5.1.1_update_log.md)
-- 本次重点：修复历史归档实例下载名兼容问题，新增实例下载兜底接口，控制台新增“归档修复”标签并优化说明文案。
+- `v5.1.2`（2026-03-04）
+- 更新说明见 [doc/logs/v5.1.2_update_log.md](doc/logs/v5.1.2_update_log.md)
+- 本次重点：修复实例文件名重复后缀导致的下载异常（如 `.3mf.3mf`），完善历史兼容；并调整为仅在线版本显示“打印”按钮。
 
 ## 核心能力
 - 归档模型并落盘为独立目录：`MW_<id>_<title>/`
 - 目录内包含：`meta.json`、`index.html`、`images/`、`instances/`
 - 复用在线模板生成本地归档页，支持后续统一重建
+- 打印按钮仅在线版本可用（`/v2/files/{model_dir}`）；本地离线页（`/files/.../index.html` 与 `file://`）默认隐藏打印按钮
 - 同模型二次归档自动按“更新”处理，避免重复目录
 - `meta.json` 增加 `update_time` 字段
 - 配置页支持“更新已归档页面”（`/api/archive/rebuild-pages`）
@@ -224,6 +225,7 @@ Chrome 插件：
 ## 文档目录
 - [api.md (API 接口文档)](doc/readme/api.md)
 - [v5.1.1_update_log.md](doc/logs/v5.1.1_update_log.md)
+- [v5.1.2_update_log.md](doc/logs/v5.1.2_update_log.md)
 - [v5.1_update_log.md](doc/logs/v5.1_update_log.md)
 - [v5.0_update_log.md](doc/logs/v5.0_update_log.md)
 - [v4.5_update_log.md](doc/logs/v4.5_update_log.md)

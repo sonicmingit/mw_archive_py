@@ -75,15 +75,20 @@ def download_file(session: requests.Session, url: str, dest: Path, overwrite: bo
 
 
 def pick_instance_filename(inst: dict, name_hint: str = "") -> str:
-    base = sanitize_filename(inst.get("title") or inst.get("name") or str(inst.get("id") or "model"))
+    base = sanitize_filename(
+        inst.get("fileName")
+        or inst.get("name")
+        or inst.get("sourceFileName")
+        or inst.get("localName")
+        or inst.get("title")
+        or str(inst.get("id") or "model")
+    ).strip()
     if not base:
         base = str(inst.get("id") or "model")
-    ext = Path(name_hint).suffix if name_hint else ""
-    if not ext:
-        ext = ".3mf"
-    elif not ext.startswith("."):
-        ext = "." + ext
-    return f"{base}{ext}"
+    # base 可能已经包含 .3mf，避免拼成 xxx.3mf.3mf
+    if base.lower().endswith(".3mf"):
+        return base
+    return f"{base}.3mf"
 
 
 def fetch_html_with_requests(session: requests.Session, url: str, raw_cookie: str) -> Optional[str]:

@@ -505,7 +505,11 @@ def _candidate_instance_names(inst: dict) -> List[str]:
         if not name:
             continue
         out.append(name)
-        if Path(name).suffix == "":
+        # 不能用 Path(name).suffix 判定：标题里可能出现 "0.28mm" 这类小数点，导致误判为“已有扩展名”
+        if not name.lower().endswith(".3mf"):
+            out.append(f"{name}.3mf")
+        else:
+            # 兼容历史错误归档：磁盘文件可能是 xxx.3mf.3mf
             out.append(f"{name}.3mf")
     # 去重并保持顺序
     return list(dict.fromkeys(out))
@@ -802,15 +806,20 @@ def parse_missing(cfg) -> List[dict]:
 
 
 def pick_instance_filename(inst: dict, name_hint: str = "") -> str:
-    base = sanitize_filename(inst.get("title") or inst.get("name") or str(inst.get("id") or "model"))
+    base = sanitize_filename(
+        inst.get("fileName")
+        or inst.get("name")
+        or inst.get("sourceFileName")
+        or inst.get("localName")
+        or inst.get("title")
+        or str(inst.get("id") or "model")
+    ).strip()
     if not base:
         base = str(inst.get("id") or "model")
-    ext = Path(name_hint).suffix if name_hint else ""
-    if not ext:
-        ext = ".3mf"
-    elif not ext.startswith("."):
-        ext = "." + ext
-    return f"{base}{ext}"
+    # base 可能已经包含 .3mf，避免拼成 xxx.3mf.3mf
+    if base.lower().endswith(".3mf"):
+        return base
+    return f"{base}.3mf"
 
 
 def retry_missing_downloads(cfg, cookie: str):
@@ -1302,6 +1311,90 @@ async def api_bambu_download(hex_path: str):
         "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
     }
     return FileResponse(full_path, headers=headers)
+
+
+@app.get("/api/bambu/model/{model_dir}/instance/{inst_id}.3mf")
+async def api_bambu_download_instance(model_dir: str, inst_id: int):
+    import urllib.parse
+
+    target = resolve_model_dir(model_dir)
+    meta_path = target / "meta.json"
+    instances_dir = target / "instances"
+    if not meta_path.exists() or not instances_dir.exists():
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    data = read_json_file(meta_path, {})
+    instances = data.get("instances") if isinstance(data, dict) else None
+    if not isinstance(instances, list):
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    target_inst = next((x for x in instances if isinstance(x, dict) and str(x.get("id")) == str(inst_id)), None)
+    if not target_inst:
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    resolved_name = resolve_instance_filename(target_inst, instances_dir)
+    if not resolved_name:
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    full_path = (instances_dir / resolved_name).resolve()
+    if not str(full_path).startswith(str(instances_dir.resolve())) or not full_path.is_file():
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    if str(target_inst.get("fileName") or "").strip() != resolved_name:
+        target_inst["fileName"] = resolved_name
+        try:
+            meta_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            logger.warning("回填实例 fileName 失败: %s / %s", model_dir, inst_id)
+
+    encoded_filename = urllib.parse.quote(full_path.name)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+    }
+    return FileResponse(full_path, headers=headers, media_type="application/octet-stream")
+
+
+@app.get("/api/bambu/model/{model_dir}/instance/{inst_id}/{display_name}")
+async def api_bambu_download_instance_named(model_dir: str, inst_id: int, display_name: str):
+    import urllib.parse
+
+    target = resolve_model_dir(model_dir)
+    meta_path = target / "meta.json"
+    instances_dir = target / "instances"
+    if not meta_path.exists() or not instances_dir.exists():
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    data = read_json_file(meta_path, {})
+    instances = data.get("instances") if isinstance(data, dict) else None
+    if not isinstance(instances, list):
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    target_inst = next((x for x in instances if isinstance(x, dict) and str(x.get("id")) == str(inst_id)), None)
+    if not target_inst:
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    resolved_name = resolve_instance_filename(target_inst, instances_dir)
+    if not resolved_name:
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    full_path = (instances_dir / resolved_name).resolve()
+    if not str(full_path).startswith(str(instances_dir.resolve())) or not full_path.is_file():
+        raise HTTPException(404, "找不到对应的打印配置或者模型文件")
+
+    # 运行时自愈
+    if str(target_inst.get("fileName") or "").strip() != resolved_name:
+        target_inst["fileName"] = resolved_name
+        try:
+            meta_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            logger.warning("回填实例 fileName 失败: %s / %s", model_dir, inst_id)
+
+    # display_name 仅用于 Bambu 链接显示，文件实际读取仍以 inst_id 解析
+    encoded_filename = urllib.parse.quote(resolved_name)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+    }
+    return FileResponse(full_path, headers=headers, media_type="application/octet-stream")
 
 
 @app.post("/api/instances/{inst_id}/redownload")
