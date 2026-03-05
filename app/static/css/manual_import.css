@@ -532,3 +532,103 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 暗黑主题适配：避免浅底浅字导致对比度不足 */
+:root[data-theme="dark"] .manual-modal {
+  background: rgba(2, 8, 23, 0.72);
+}
+
+:root[data-theme="dark"] .manual-modal__inner {
+  background: #0f172a;
+  border: 1px solid #334155;
+}
+
+:root[data-theme="dark"] .manual-modal__header {
+  background: linear-gradient(to bottom, #111827, #0f172a);
+  border-bottom-color: #334155;
+}
+
+:root[data-theme="dark"] .manual-form {
+  background:
+    radial-gradient(circle at right top, rgba(6, 182, 212, 0.14), transparent 44%),
+    linear-gradient(180deg, #0f172a 0%, #111827 100%);
+}
+
+:root[data-theme="dark"] .manual-form input[type="text"],
+:root[data-theme="dark"] .manual-form textarea,
+:root[data-theme="dark"] .manual-form input[type="file"] {
+  background: #111827;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .manual-form input[type="text"]::placeholder,
+:root[data-theme="dark"] .manual-form textarea::placeholder {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .manual-form input[type="text"]:focus,
+:root[data-theme="dark"] .manual-form textarea:focus {
+  background: #0b1220;
+  border-color: var(--color-primary);
+}
+
+:root[data-theme="dark"] .manual-actions {
+  background: rgba(15, 23, 42, 0.92);
+  border-top-color: #334155;
+}
+
+:root[data-theme="dark"] .manual-btn {
+  background: #111827;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .manual-btn:hover {
+  background: #1f2937;
+  border-color: #64748b;
+}
+
+:root[data-theme="dark"] .manual-smart-row {
+  background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+  border-color: #475569;
+}
+
+:root[data-theme="dark"] .manual-draft-preview,
+:root[data-theme="dark"] .manual-draft-inst,
+:root[data-theme="dark"] .manual-draft-file,
+:root[data-theme="dark"] .file-desc-item {
+  background: #111827;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .manual-draft-inst {
+  background: #0b1220;
+}
+
+:root[data-theme="dark"] .manual-rich-btn {
+  background: #111827;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .manual-rich-btn:hover {
+  background: #0b1220;
+  color: #67e8f9;
+}
+
+:root[data-theme="dark"] .manual-rich-editor {
+  background: #111827;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .manual-rich-editor blockquote {
+  background: rgba(15, 23, 42, 0.88);
+}
+
+:root[data-theme="dark"] .manual-msg {
+  background: #111827;
+  color: #cbd5e1;
+  border: 1px solid #334155;
+}

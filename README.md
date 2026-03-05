@@ -5,9 +5,9 @@
 一个面向本地模型管理的工具，支持 3MF 文件上传解析、模型库浏览与维护；
 
 ## 当前版本
-- `v5.2.2`
-- 更新说明见 [doc/logs/v5.2.2_update_log.md](doc/logs/v5.2.2_update_log.md)
-- 本次重点：修复归档同名实例文件覆盖问题；新增实例 `fileName` 记录并统一重下载路径的防覆盖策略。
+- `v5.2.3`
+- 更新说明见 [doc/logs/v5.2.3_update_log.md](doc/logs/v5.2.3_update_log.md)
+- 本次重点：修复暗黑模式下手动导入弹窗显示问题；新增归档更新独立日志，记录跳过/失败/未定位明细。
 
 ## 核心能力
 - 本地上传 3MF 后自动解析并入库，快速建立个人模型库
@@ -207,3 +207,6 @@ Chrome 插件：
 - [版本日志说明与模板索引](doc/logs/README.md)
 - [update.sh 使用说明](doc/readme/update_sh_usage.md)
 - [项目架构与功能文档.md](doc/archives项目架构与功能文档.md)
+
+## License
+本项目采用 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 开源协议。

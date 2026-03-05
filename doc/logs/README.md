@@ -66,6 +66,13 @@
 
 ### 历史记录
 
+#### 2026-03-05 17:40
+- 版本号：`v5.2.3`
+- 更新说明链接：[`doc/logs/v5.2.3_update_log.md`](./v5.2.3_update_log.md)
+- 本次重点：修复暗黑模式下手动导入弹窗显示问题；新增归档更新独立日志，记录跳过/失败/未定位明细。
+- 同步人：AI（Codex）
+- 备注：发布前同步根 `README.md` 当前版本区块。
+
 #### 2026-03-05 20:10
 - 版本号：`v5.2.2`
 - 更新说明链接：[`doc/logs/v5.2.2_update_log.md`](./v5.2.2_update_log.md)
@@ -82,6 +89,7 @@
 
 ## 版本日志索引
 
+- [`v5.2.3_update_log.md`](./v5.2.3_update_log.md)
 - [`v5.2.2_update_log.md`](./v5.2.2_update_log.md)
 - [`v5.2_update_log.md`](./v5.2_update_log.md)
 - [`v5.1.2_update_log.md`](./v5.1.2_update_log.md)

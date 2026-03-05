@@ -556,6 +556,70 @@ def resolve_instance_filename(inst: dict, instances_dir: Path) -> str:
     return ""
 
 
+def write_rebuild_report_log(
+    *,
+    result: dict,
+    unresolved_records: List[dict],
+):
+    """将归档更新中的跳过/失败/未定位明细写入独立日志文件。"""
+    logs_dir = Path(CFG["logs_dir"])
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    report_path = logs_dir / "rebuild_pages.log"
+
+    details = result.get("details") if isinstance(result.get("details"), list) else []
+    skipped_rows = [x for x in details if isinstance(x, dict) and x.get("status") == "skipped"]
+    failed_rows = [x for x in details if isinstance(x, dict) and x.get("status") == "fail"]
+
+    lines = []
+    lines.append(f"[{datetime.now().isoformat()}] 归档更新执行报告")
+    lines.append(
+        "汇总: processed={processed}, updated={updated}, skipped={skipped}, failed={failed}, "
+        "fixed_instance_files={fixed}, unresolved_instance_files={unresolved}".format(
+            processed=int(result.get("processed") or 0),
+            updated=int(result.get("updated") or 0),
+            skipped=int(result.get("skipped") or 0),
+            failed=int(result.get("failed") or 0),
+            fixed=int(result.get("fixed_instance_files") or 0),
+            unresolved=int(result.get("unresolved_instance_files") or 0),
+        )
+    )
+
+    lines.append("跳过详情:")
+    if skipped_rows:
+        for row in skipped_rows:
+            lines.append(f"- dir={row.get('dir')}, message={row.get('message')}")
+    else:
+        lines.append("- 无")
+
+    lines.append("失败详情:")
+    if failed_rows:
+        for row in failed_rows:
+            lines.append(f"- dir={row.get('dir')}, message={row.get('message')}")
+    else:
+        lines.append("- 无")
+
+    lines.append("未定位实例详情:")
+    if unresolved_records:
+        for row in unresolved_records:
+            lines.append(
+                "- dir={dir}, inst_id={inst_id}, title={title}, name={name}, fileName={file_name}".format(
+                    dir=row.get("dir") or "",
+                    inst_id=row.get("inst_id") or "",
+                    title=row.get("title") or "",
+                    name=row.get("name") or "",
+                    file_name=row.get("file_name") or "",
+                )
+            )
+    else:
+        lines.append("- 无")
+
+    lines.append("-" * 80)
+    with report_path.open("a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    return report_path
+
+
 def rebuild_archived_pages(force: bool = False, backup: bool = False, dry_run: bool = False) -> dict:
     root = Path(CFG["download_dir"]).resolve()
     assets = get_v2_frontend_assets()
@@ -578,6 +642,7 @@ def rebuild_archived_pages(force: bool = False, backup: bool = False, dry_run: b
     failed = 0
     fixed_instance_files = 0
     unresolved_instance_files = 0
+    unresolved_records = []
     details = []
 
     for meta_path in meta_paths:
@@ -604,6 +669,15 @@ def rebuild_archived_pages(force: bool = False, backup: bool = False, dry_run: b
                     resolved_name = resolve_instance_filename(inst, instances_dir)
                     if not resolved_name:
                         unresolved_instance_files += 1
+                        unresolved_records.append(
+                            {
+                                "dir": model_dir.name,
+                                "inst_id": inst.get("id"),
+                                "title": str(inst.get("title") or "").strip(),
+                                "name": str(inst.get("name") or "").strip(),
+                                "file_name": str(inst.get("fileName") or "").strip(),
+                            }
+                        )
                         continue
                     if str(inst.get("fileName") or "").strip() != resolved_name:
                         inst["fileName"] = resolved_name
@@ -649,7 +723,7 @@ def rebuild_archived_pages(force: bool = False, backup: bool = False, dry_run: b
             failed += 1
             details.append({"dir": model_dir.name, "status": "fail", "message": str(e)})
 
-    return {
+    result = {
         "root": str(root),
         "processed": processed,
         "updated": updated,
@@ -661,6 +735,9 @@ def rebuild_archived_pages(force: bool = False, backup: bool = False, dry_run: b
         "dry_run": dry_run,
         "details": details,
     }
+    report_path = write_rebuild_report_log(result=result, unresolved_records=unresolved_records)
+    result["report_log"] = str(report_path)
+    return result
 
 
 def make_summary_payload(text: str, summary_files: List[str], html_content: str = "") -> dict:
