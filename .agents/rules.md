@@ -46,12 +46,28 @@ mw_archive/
 ## 开发流程规则
 - 修改代码前，必须先阅读 `.agents/dev_logic_map.md` 中的代码逻辑说明，确认改动入口与影响范围
 - 代码修改完成后，必须同步更新 `.agents/dev_logic_map.md`，补充或修正对应逻辑说明，保证文档与代码一致
+- 需求协作流程约定：
+  - 统一在 `doc/plan/` 记录需求，必须使用 `doc/plan/README.md` 内的标准模板
+  - 每个需求使用独立文件：`REQ-YYYYMMDD-序号.md`
+  - 需求文档必须包含三段：
+    - 用户需求记录（原始描述 + 初步思路）
+    - AI 分析（实现难度 / 实现思路 / 大体改动内容）
+    - AI 实现记录（实际改动与验证）
+  - 当用户只给需求描述时，先由 AI 新建需求文档并补全“需求记录 + AI分析”
+  - 用户后续补充后，AI 按指定需求编号读取文档并执行开发，完成后回写“AI实现记录”
 - Bug 协作流程约定：
-  - 统一在 `doc/bug.md` 记录 Bug，必须使用文档内的标准模板
+  - 统一在 `doc/bugs/` 记录 Bug，必须使用 `doc/bugs/README.md` 内的标准模板
   - 状态字段统一使用 emoji 标记：`🟡 待确认`、`🛠️ 处理中`、`🧪 待验证`、`✅ 已解决`、`⚪ 已关闭`
-  - 当用户仅提供问题描述时，先由 AI 按模板新增记录并分配 Bug 编号
+  - 每个 Bug 使用独立文件：`BUG-YYYYMMDD-序号.md`
+  - `doc/bugs/README.md` 的“当前 Bug 列表”索引必须使用“编号 + 标题”格式，便于快速检索
+  - 当用户仅提供问题描述时，先由 AI 按模板新增独立 Bug 文档并分配 Bug 编号
   - 用户后续补充细节后，AI 仅根据指定 Bug 编号进行定位、修复与状态更新
-  - 修复完成后，必须回写 `doc/bug.md`：更新状态、解决时间、修复记录、验证记录
+  - 修复完成后，必须回写对应 Bug 文档：更新状态、解决时间、修复记录、验证记录
+- 版本日志协作流程约定：
+  - 统一在 `doc/logs/` 记录发布日志，必须使用 `doc/logs/README.md` 内置模板
+  - 每个版本使用独立文件：`vX.Y.Z_update_log.md`
+  - `doc/logs/README.md` 维护日志说明、模板入口和日志索引
+  - 每次同步根 `README.md` 的「## 当前版本」后，必须在 `doc/logs/README.md` 的“README 当前版本同步记录”中增加一条记录
 
 ## 前端开发规范
 - 不使用前端框架，保持原生 HTML/CSS/JS
@@ -92,6 +108,10 @@ mw_archive/
 - 每次大的更新在 `doc/logs/` 目录下创建版本更新日志文件
   - 文件命名: `vX.X.X_update_log.md`
   - 内容: 包含详细的技术变更内容、涉及文件、改动细节
+- `doc/logs/` 目录维护要求:
+  - `README.md`：说明、标准模板、日志索引、README 当前版本同步记录
+- 索引可读性要求：
+  - `doc/bugs/README.md` 与 `doc/plan/README.md` 的列表索引均需包含“编号 + 标题”
 - 同时在根目录 `README.md` 中:
   - 更新"当前版本"区块内容（由 `sync_version.py` 同步版本号）
   - 添加对应的更新日志链接
@@ -103,13 +123,20 @@ mw_archive/
 2. 人工确认要发布的版本号（修改 `version.yml`）
 3. AI 负责:
    - 总结本次更新内容
+   - 更新/创建 `doc/logs/vX.X.X_update_log.md`
+   - 同步根 `README.md` 的「## 当前版本」（版本号、日志链接、重点说明）
+   - 在 `doc/logs/README.md` 的“README 当前版本同步记录”追加一条记录
    - 运行 `scripts/sync_version.py` 同步版本到项目文件
-   - 必要时补充/更新 `doc/logs/vX.X.X_update_log.md` 与 README 当前版本说明
+   - 输出改动清单供人工确认（不自动执行 git commit）
 4. 用户手动执行:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\scripts\release_tag.ps1
    ```
-5. `release_tag.ps1` 完成 commit/tag/push 后，GitHub Actions 自动创建 Release
+   或（Git Bash / Linux / macOS）:
+   ```bash
+   bash ./scripts/release_tag.sh
+   ```
+5. 发布脚本负责 tag 与 push；推送 `v*` tag 后，GitHub Actions 自动创建 Release
 
 ### 更新日志模板
 ```markdown
