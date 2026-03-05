@@ -473,12 +473,12 @@ body {
     padding: 10px;
     border: 1px dashed var(--border-color);
     border-radius: var(--radius-md);
-    background: #f8fbfc;
+    background: var(--bg-hover);
 }
 
 .inst-admin-btn {
     border: 1px solid var(--border-color);
-    background: #fff;
+    background: var(--bg-card);
     color: var(--text-primary);
     padding: 6px 12px;
     border-radius: 999px;
@@ -489,7 +489,7 @@ body {
 
 .inst-admin-btn.primary {
     background: var(--color-primary);
-    color: #fff;
+    color: var(--text-inverse);
     border-color: var(--color-primary);
 }
 
@@ -516,7 +516,7 @@ body {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     padding: 16px;
-    background: #fff;
+    background: var(--bg-card);
     transition: all 0.2s ease;
 }
 
@@ -686,7 +686,7 @@ body {
     width: 100%;
     height: 60px;
     object-fit: contain;
-    background: #fff;
+    background: var(--bg-card);
     border-radius: 4px;
     margin-bottom: 4px;
     cursor: zoom-in;
@@ -937,7 +937,7 @@ body {
 }
 
 .modal-side-panel {
-    background: #fff;
+    background: var(--bg-card);
     flex: 1;
     /* let right side flexibly use remaining space in 1:1 modal */
     border-radius: var(--radius-lg);
@@ -993,7 +993,7 @@ body {
 
 .plate-row:hover,
 .plate-row.active {
-    background: #f5f5f5;
+    background: var(--bg-hover);
 }
 
 .plate-row:last-child {
@@ -1065,7 +1065,7 @@ body {
 .inst-import-modal__inner {
     width: min(860px, 96vw);
     max-height: 90vh;
-    background: #fff;
+    background: var(--bg-card);
     border-radius: 14px;
     border: 1px solid var(--border-color);
     box-shadow: var(--shadow-lg);
@@ -1127,7 +1127,7 @@ body {
 .inst-import-preview {
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    background: #f8fbfc;
+    background: var(--bg-hover);
     padding: 12px;
 }
 
@@ -1154,7 +1154,7 @@ body {
     align-items: center;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: #fff;
+    background: var(--bg-card);
     padding: 0 10px;
     font-size: 13px;
     color: var(--text-secondary);
@@ -1182,7 +1182,7 @@ body {
 .inst-import-gallery-item {
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: #fff;
+    background: var(--bg-card);
     overflow: hidden;
 }
 
@@ -1219,7 +1219,7 @@ body {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    background: #fff;
+    background: var(--bg-card);
 }
 
 @media (max-width: 900px) {

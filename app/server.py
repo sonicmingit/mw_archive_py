@@ -726,27 +726,23 @@ def load_config():
         if k not in cfg:
             cfg[k] = v
             changed = True
-    # 规范化为绝对路径
-    cfg_download = str((BASE_DIR / cfg.get("download_dir", "data")).resolve())
-    cfg_cookie = str((BASE_DIR / cfg.get("cookie_file", "cookie.txt")).resolve())
-    cfg_logs = str((BASE_DIR / cfg.get("logs_dir", "logs")).resolve())
-    if cfg.get("download_dir") != cfg_download:
-        changed = True
-    if cfg.get("cookie_file") != cfg_cookie:
-        changed = True
-    if cfg.get("logs_dir") != cfg_logs:
-        changed = True
-    cfg["download_dir"] = cfg_download
-    cfg["cookie_file"] = cfg_cookie
-    cfg["logs_dir"] = cfg_logs
+
+    # 仅移除已废弃字段，不因相对/绝对路径规范化而回写 config.json
     if "manual_local_model_counter" in cfg:
         del cfg["manual_local_model_counter"]
         changed = True
-    Path(cfg["download_dir"]).mkdir(parents=True, exist_ok=True)
-    Path(cfg["logs_dir"]).mkdir(parents=True, exist_ok=True)
+
+    # 运行时使用绝对路径，配置文件本身保留用户填写的相对路径
+    runtime_cfg = dict(cfg)
+    runtime_cfg["download_dir"] = str((BASE_DIR / cfg.get("download_dir", "data")).resolve())
+    runtime_cfg["cookie_file"] = str((BASE_DIR / cfg.get("cookie_file", "cookie.txt")).resolve())
+    runtime_cfg["logs_dir"] = str((BASE_DIR / cfg.get("logs_dir", "logs")).resolve())
+
+    Path(runtime_cfg["download_dir"]).mkdir(parents=True, exist_ok=True)
+    Path(runtime_cfg["logs_dir"]).mkdir(parents=True, exist_ok=True)
     if changed:
         CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    return cfg
+    return runtime_cfg
 
 
 def load_gallery_flags() -> dict:

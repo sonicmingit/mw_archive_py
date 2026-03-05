@@ -5,6 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>模型详情</title>
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('mw_theme');
+                var theme = t === 'dark' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch (_) {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
     <link rel="icon" href="/static/imgs/fav.ico" sizes="any">
     <link rel="icon" type="image/png" href="/static/imgs/fav.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -176,6 +187,7 @@
         <button class="lb-nav lb-next"><i class="fas fa-chevron-right"></i></button>
     </div>
 
+    <script src="/static/js/theme.js?v=5.1.2"></script>
     <script src="/static/js/model.js?v=2.8"></script>
 </body>
 

@@ -77,7 +77,7 @@
 
 .tab:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.5);
+    background: var(--bg-card);
 }
 
 .tab.active {
@@ -318,13 +318,13 @@
 }
 
 .btn-danger {
-    background: #F44336;
-    color: white;
+    background: var(--color-error);
+    color: var(--text-inverse);
     border: none;
 }
 
 .btn-danger:hover {
-    background: #D32F2F;
+    filter: brightness(0.9);
 }
 
 /* Info Box */
@@ -410,4 +410,19 @@
     .missing-table td {
         padding: var(--spacing-xs) var(--spacing-sm);
     }
+}
+
+:root[data-theme="dark"] .status-badge.error {
+    background: rgba(244, 67, 54, 0.15);
+    color: #ff8a80;
+}
+
+:root[data-theme="dark"] .status-badge.success {
+    background: rgba(76, 175, 80, 0.16);
+    color: #9be7a1;
+}
+
+:root[data-theme="dark"] .status-badge.warning {
+    background: rgba(255, 152, 0, 0.18);
+    color: #ffc266;
 }

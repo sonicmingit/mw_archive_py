@@ -40,6 +40,10 @@ mw_archive/
 - 所有文件使用 UTF-8 编码
 - 中文注释优先，关键逻辑必须写注释
 
+## 开发流程规则
+- 修改代码前，必须先阅读 `.agents/dev_logic_map.md` 中的代码逻辑说明，确认改动入口与影响范围
+- 代码修改完成后，必须同步更新 `.agents/dev_logic_map.md`，补充或修正对应逻辑说明，保证文档与代码一致
+
 ## 前端开发规范
 - 不使用前端框架，保持原生 HTML/CSS/JS
 - CSS 变量统一定义在 `static/css/variables.css`，禁止在组件中硬编码颜色值

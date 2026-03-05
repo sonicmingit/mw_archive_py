@@ -5,9 +5,9 @@
 一个用于归档 MakerWorld 模型到本地的项目，支持模型采集、离线页面生成、模型库浏览、缺失 3MF 重试，以及浏览器插件一键归档。
 
 ## 当前版本
-- `v5.1.2`（2026-03-04）
-- 更新说明见 [doc/logs/v5.1.2_update_log.md](doc/logs/v5.1.2_update_log.md)
-- 本次重点：修复实例文件名重复后缀导致的下载异常（如 `.3mf.3mf`），完善历史兼容；并调整为仅在线版本显示“打印”按钮。
+- `v5.2`（2026-03-04）
+- 更新说明见 [doc/logs/v5.2_update_log.md](doc/logs/v5.2_update_log.md)
+- 本次重点：新增亮色/暗黑主题切换，主页与配置页支持一键切换；在线详情页（`/v2/files/...`）自动跟随主页主题。
 
 ## 核心能力
 - 归档模型并落盘为独立目录：`MW_<id>_<title>/`
@@ -208,7 +208,7 @@ http://127.0.0.1:8000
 
 ## 插件说明
 Chrome 插件：
-- 一键归档，快速更新cookie
+- 一键归档，快速更新cookie(不完整,建议还是手动更新)
 - 目录：`plugin/chrome_extension/mw_quick_archive_ext`
 - 说明：[plugin/chrome_extension/使用说明.md](plugin/chrome_extension/使用说明.md)
 
@@ -216,14 +216,17 @@ Chrome 插件：
 - 一键归档，手动更新cookie
 - 文件：`plugin/tampermonkey/mw_quick_archive.user.js`
 - 说明：[plugin/tampermonkey/使用说明.md](plugin/tampermonkey/使用说明.md)
+- 直接安装插件地址 [地址](https://github.com/sonicmingit/mw_archive_py/raw/refs/heads/main/plugin/tampermonkey/mw_quick_archive.user.js)
 
 ## 脚本说明
-- `update.sh`：服务器更新部署脚本，支持 `git pull` 无更新时确认是否继续重部署。
+- `update.sh`：更新与部署编排脚本，支持 `git pull` 无更新时确认是否继续重部署。详细用法与“快速本地构建更新”配置见 [doc/readme/update_sh_usage.md](doc/readme/update_sh_usage.md)。
 - `scripts/rebuild_index_from_meta.py`：根据 `meta.json` 重建归档页面（兼容场景）。
 - `scripts/patch_attachments.py`、`scripts/patch_printed.py`：历史数据补丁脚本。
 
 ## 文档目录
 - [api.md (API 接口文档)](doc/readme/api.md)
+- [update.sh 使用说明](doc/readme/update_sh_usage.md)
+- [v5.2_update_log.md](doc/logs/v5.2_update_log.md)
 - [v5.1.1_update_log.md](doc/logs/v5.1.1_update_log.md)
 - [v5.1.2_update_log.md](doc/logs/v5.1.2_update_log.md)
 - [v5.1_update_log.md](doc/logs/v5.1_update_log.md)

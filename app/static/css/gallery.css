@@ -18,7 +18,7 @@ body {
 /* Header / Navbar */
 header {
   height: 64px;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-elevated);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-color);
   position: sticky;
@@ -71,7 +71,7 @@ header {
 }
 
 .search-box:focus-within {
-  background: #fff;
+  background: var(--bg-card);
   outline-color: var(--color-primary);
   outline-width: 2px;
 }
@@ -140,7 +140,7 @@ header {
 .sidebar {
   width: 250px;
   flex-shrink: 0;
-  background: #fff;
+  background: var(--bg-card);
   border-right: 1px solid var(--border-color);
   padding: 24px 16px;
   overflow-y: auto;
@@ -216,7 +216,7 @@ header {
 }
 
 .side-item.active {
-  background: #E6F7FF;
+  background: var(--bg-active-soft);
   color: var(--color-primary);
   font-weight: 600;
 }
@@ -268,7 +268,7 @@ header {
 
 /* Card */
 .card {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 12px;
   border: 1px solid var(--border-color);
   overflow: hidden;
@@ -281,7 +281,7 @@ header {
 .card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
-  border-color: #d0d7de;
+  border-color: var(--border-color);
   z-index: 2;
 }
 
@@ -505,7 +505,7 @@ header {
   font-weight: 600;
   border: 1px solid var(--border-color);
   border-radius: 20px;
-  background: #fff;
+  background: var(--bg-card);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -515,12 +515,12 @@ header {
 .btn-v2-toggle:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background: #f0f7ff;
+  background: var(--bg-active-soft-2);
 }
 
 .btn-v2-toggle.active {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--text-inverse);
   border-color: var(--color-primary);
 }
 

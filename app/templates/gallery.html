@@ -5,6 +5,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>本地模型库</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('mw_theme');
+        document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+      } catch (_) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <link rel="icon" href="/static/imgs/fav.ico" sizes="any">
   <link rel="icon" type="image/png" href="/static/imgs/fav.png">
   <!-- Font Awesome Icons -->
@@ -39,6 +49,9 @@
       </div>
 
       <div class="header-actions">
+        <button class="btn btn-outline" type="button" data-theme-toggle title="切换到暗黑模式">
+          <i class="fas fa-moon"></i> <span class="theme-toggle-label">暗黑</span>
+        </button>
         <button class="btn btn-secondary" type="button" data-manual-import-open>
           <i class="fas fa-upload"></i> 手动导入
         </button>
@@ -233,8 +246,9 @@
       </form>
     </div>
   </div>
+  <script src="/static/js/theme.js?v=5.1.2" defer></script>
   <script src="/static/js/gallery.js?v=5.2" defer></script>
   <script src="/static/js/manual_import.js?v=5.3" defer></script>
-  /body>
+</body>
 
 </html>
