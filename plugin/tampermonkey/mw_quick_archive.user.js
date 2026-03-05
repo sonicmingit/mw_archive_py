@@ -48,7 +48,7 @@
     GM_setValue(KEY_MANUAL_COOKIE, String(cookie || '').trim());
   }
 
-  function notify(text, title = 'MakerWorld 归档助手') {
+  function notify(text, title = '归档助手') {
     try {
       GM_notification({ title, text, timeout: 2500 });
     } catch (_) {

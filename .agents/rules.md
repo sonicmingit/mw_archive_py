@@ -1,4 +1,4 @@
-# MakerWorld Archive 项目开发规则
+# 本地模型管理工具 项目开发规则
 
 ## 技术栈
 - **后端**: Python 3.10+ / FastAPI / Uvicorn

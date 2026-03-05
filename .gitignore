@@ -44,6 +44,7 @@ pip-delete-this-directory.txt
 *.log
 #logs/
 app*/logs/
+app*/html/
 
 # Data & Config
 data/
@@ -52,11 +53,13 @@ data*/
 cookie.txt
 !config.json
 
+
 # Temporary files
 *.tmp
 *.bak
 *.cache
 app/tmp/
+app*/html/
 
 # OS
 .DS_Store

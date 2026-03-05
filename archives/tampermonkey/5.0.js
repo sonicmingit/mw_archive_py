@@ -31,12 +31,12 @@
     function notify(msg) {
         try {
             GM_notification({
-                title: 'MakerWorld 归档助手',
+                title: '归档助手',
                 text: msg,
                 timeout: 4000,
             });
         } catch (e) {
-            alert('[MakerWorld 归档助手]\n' + msg);
+            alert('[归档助手]\n' + msg);
         }
     }
 
@@ -722,19 +722,19 @@
             },
             designImages: Array.isArray(imagesMeta.designImages)
                 ? imagesMeta.designImages.map((d) => ({
-                      index: d.index,
-                      originalUrl: d.originalUrl,
-                      relPath: d.relPath,
-                      fileName: d.fileName,
-                  }))
+                    index: d.index,
+                    originalUrl: d.originalUrl,
+                    relPath: d.relPath,
+                    fileName: d.fileName,
+                }))
                 : [],
             summaryImages: Array.isArray(summary.summaryImages)
                 ? summary.summaryImages.map((i) => ({
-                      index: i.index,
-                      originalUrl: i.originalUrl,
-                      relPath: i.relPath,
-                      fileName: i.fileName,
-                  }))
+                    index: i.index,
+                    originalUrl: i.originalUrl,
+                    relPath: i.relPath,
+                    fileName: i.fileName,
+                }))
                 : [],
             summary: {
                 raw: summary.raw || '',

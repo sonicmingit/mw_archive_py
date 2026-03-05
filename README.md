@@ -207,3 +207,6 @@ Chrome 插件：
 - [版本日志说明与模板索引](doc/logs/README.md)
 - [update.sh 使用说明](doc/readme/update_sh_usage.md)
 - [项目架构与功能文档.md](doc/archives项目架构与功能文档.md)
+
+## License
+本项目采用 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 开源协议。
