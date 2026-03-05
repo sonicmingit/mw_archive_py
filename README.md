@@ -1,8 +1,8 @@
-# MakerWorld 本地归档小应用
+# 3D打印本地模型管理工具
 
-![MakerWorld Archive](https://aliyun-wb-h9vflo19he.oss-cn-shanghai.aliyuncs.com/use/makerworld_archive.png)
+![mw_archive](https://aliyun-wb-h9vflo19he.oss-cn-shanghai.aliyuncs.com/use/makerworld_archive.png)
 
-一个面向本地模型管理的工具，重点支持 3MF 文件上传解析、模型库浏览与维护；同时保留 MakerWorld 一键归档作为辅助导入方式。
+一个面向本地模型管理的工具，支持 3MF 文件上传解析、模型库浏览与维护；
 
 ## 当前版本
 - `v5.2.2`
@@ -180,45 +180,22 @@ http://127.0.0.1:8000
 ## API 清单
 > 详细的接口、传参示例和返回说明，请参见完整的 [API 接口文档 (doc/api.md)](doc/readme/api.md)
 
-- `GET /api/config`
-- `POST /api/cookie`
-- `POST /api/archive`
-- `POST /api/archive/rebuild-pages`
-- `GET /api/logs/missing-3mf`
-- `POST /api/logs/missing-3mf/redownload`
-- `DELETE /api/logs/missing-3mf/{index}`
-- `GET /api/bambu/download/{hex_path}.3mf`
-- `POST /api/instances/{inst_id}/redownload`
-- `POST /api/models/{model_id}/redownload`
-- `GET /api/gallery`
-- `GET /api/gallery/flags`
-- `POST /api/gallery/flags`
-- `POST /api/models/manual`
-- `POST /api/models/{model_dir}/delete`
-- `GET /api/models/{model_dir}/attachments`
-- `POST /api/models/{model_dir}/attachments`
-- `GET /api/models/{model_dir}/printed`
-- `POST /api/models/{model_dir}/printed`
-- `GET /api/models/{model_dir}/instances/{inst_id}/download`
-- `GET /v2/files/{model_dir}`
-- `GET /api/v2/models/{model_dir}/meta`
-
 ## 插件说明
 Chrome 插件：
-- 一键归档，快速更新cookie(不完整,建议还是手动更新)
+- 一键归档
 - 目录：`plugin/chrome_extension/mw_quick_archive_ext`
 - 说明：[plugin/chrome_extension/使用说明.md](plugin/chrome_extension/使用说明.md)
 
 油猴脚本：
-- 一键归档，手动更新cookie
+- 一键归档
 - 文件：`plugin/tampermonkey/mw_quick_archive.user.js`
 - 说明：[plugin/tampermonkey/使用说明.md](plugin/tampermonkey/使用说明.md)
 - 直接安装插件地址 [地址](https://github.com/sonicmingit/mw_archive_py/raw/refs/heads/main/plugin/tampermonkey/mw_quick_archive.user.js)
 
 ## 脚本说明
 - `update.sh`：更新与部署编排脚本，支持 `git pull` 无更新时确认是否继续重部署。详细用法与“快速本地构建更新”配置见 [doc/readme/update_sh_usage.md](doc/readme/update_sh_usage.md)。
-- `version.yml`：统一版本源（项目、油猴、Chrome 扩展版本）。
-- `scripts/sync_version.py`：将 `version.yml` 的版本同步到项目文件。
+- `app/version.yml`：统一版本源（项目、油猴、Chrome 扩展版本）。
+- `scripts/sync_version.py`：将 `app/version.yml` 的版本同步到项目文件。
 - `scripts/release_tag.ps1`：一键执行“版本同步 -> commit -> 打 tag -> push”；推送 `v*` tag 后会由 GitHub Actions 自动创建 Release。
 - `scripts/rebuild_index_from_meta.py`：根据 `meta.json` 重建归档页面（兼容场景）。
 

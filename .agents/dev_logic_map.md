@@ -74,7 +74,9 @@
   - `GET /api/config`
   - `GET /config`（模板渲染）
 - 版本展示规则：
-  - `/config` 页面版本由 `server.py` 读取根目录 `version.yml` 的 `project_version` 注入模板
+  - `/config` 页面版本由 `server.py` 读取 `app/version.yml` 的 `project_version` 注入模板
+  - 版本文件查找顺序：
+    1. `app/version.yml`
   - `app/templates/config.html` 内使用模板变量 `project_version` / `project_version_short`
 
 ### 2.6 手动导入草稿缓存清理

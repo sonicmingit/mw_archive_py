@@ -4,7 +4,7 @@
 # - 将本地镜像打标签并推送到 Docker Hub。
 # - 同时推送两个标签：
 #   1) latest
-#   2) version.yml 中 project_version 对应的版本标签（如 5.2.0）
+#   2) app/version.yml 中 project_version 对应的版本标签（如 5.2.0）
 # - 默认本地源镜像为 mw-archiver:latest，可通过第一个参数覆盖。
 #
 # 用法：
@@ -15,14 +15,16 @@ set -euo pipefail
 
 SOURCE_IMAGE="${1:-mw-archiver:latest}"
 TARGET_REPO="sonicming/mw-archiver"
-VERSION_FILE="version.yml"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VERSION_FILE="$REPO_ROOT/app/version.yml"
 
 if [[ ! -f "$VERSION_FILE" ]]; then
   echo "错误：未找到 $VERSION_FILE"
   exit 1
 fi
 
-# 从 version.yml 提取 project_version（格式要求 X.Y.Z）
+# 从 app/version.yml 提取 project_version（格式要求 X.Y.Z）
 PROJECT_VERSION="$(grep -E '^[[:space:]]*project_version[[:space:]]*:' "$VERSION_FILE" | head -n1 | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]]+$//')"
 
 if [[ -z "$PROJECT_VERSION" ]]; then

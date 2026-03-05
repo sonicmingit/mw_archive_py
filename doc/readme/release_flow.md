@@ -4,7 +4,7 @@
 
 ## 一、当前发布机制
 
-- 版本号唯一来源：`version.yml`
+- 版本号唯一来源：`app/version.yml`
 - 版本同步脚本：`scripts/sync_version.py`
 - 一键打 tag 并推送（PowerShell）：`scripts/release_tag.ps1`
 - 一键打 tag 并推送（Shell）：`scripts/release_tag.sh`
@@ -22,7 +22,7 @@
 
 ## 三、实际发布步骤
 
-1. 修改 `version.yml`：
+1. 修改 `app/version.yml`：
    - `project_version`
    - `tampermonkey_version`（如本次有油猴脚本改动）
    - `chrome_extension_version`（如本次有扩展改动）

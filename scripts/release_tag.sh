@@ -4,7 +4,7 @@
 # - 用于“一键发布”当前版本（Shell 版）：
 #   1) 检查 tag 是否已存在
 #   2) 打 tag 并推送 main + tag
-# - 版本来源：仓库根目录 version.yml 的 project_version
+# - 版本来源：app/version.yml 的 project_version
 # - 脚本不会执行 git add / git commit，代码提交需人工提前完成
 # - GitHub 推送完成后，可交互选择是否继续推送 Docker 镜像
 # - Docker 推送脚本：scripts/docker_push.sh
@@ -17,19 +17,19 @@ set -euo pipefail
 # 计算仓库根目录（当前脚本位于 scripts/ 下）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-VERSION_FILE="$REPO_ROOT/version.yml"
+VERSION_FILE="$REPO_ROOT/app/version.yml"
 DOCKER_PUSH_SCRIPT="$REPO_ROOT/scripts/docker_push.sh"
 
 # 检查必要文件是否存在
 if [[ ! -f "$VERSION_FILE" ]]; then
-  echo "错误：version.yml 不存在: $VERSION_FILE"
+  echo "错误：app/version.yml 不存在: $VERSION_FILE"
   exit 1
 fi
 
-# 从 version.yml 提取 project_version（要求 X.Y.Z）
+# 从 app/version.yml 提取 project_version（要求 X.Y.Z）
 PROJECT_VERSION="$(grep -E '^[[:space:]]*project_version[[:space:]]*:' "$VERSION_FILE" | head -n1 | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]]+$//')"
 if [[ -z "$PROJECT_VERSION" ]]; then
-  echo "错误：version.yml 中未找到 project_version"
+  echo "错误：app/version.yml 中未找到 project_version"
   exit 1
 fi
 if [[ ! "$PROJECT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

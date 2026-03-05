@@ -85,7 +85,7 @@ mw_archive/
 ## 版本管理规则
 
 ### 版本号更新
-- 版本号唯一来源为根目录 `version.yml`，禁止手动分散修改各文件版本号
+- 版本号唯一来源为 `app/version.yml`，禁止手动分散修改各文件版本号
 - 版本字段说明:
   - `project_version`: 项目主版本（用于 README、配置页展示、发布 tag）
   - `tampermonkey_version`: 油猴脚本版本（同步到 `@version`）
@@ -94,12 +94,12 @@ mw_archive/
   ```bash
   python3 scripts/sync_version.py
   ```
-- `scripts/sync_version.py` 负责把 `version.yml` 同步到以下文件:
+- `scripts/sync_version.py` 负责把 `app/version.yml` 同步到以下文件:
   - `README.md`（当前版本）
   - `plugin/tampermonkey/mw_quick_archive.user.js`（`@version`）
   - `plugin/chrome_extension/mw_quick_archive_ext/manifest.json`（`version`）
 - 配置页版本展示说明：
-  - `/config` 页面版本由后端在渲染时从根目录 `version.yml` 读取（不再由 `sync_version.py` 替换 `config.html`）
+  - `/config` 页面版本由后端在渲染时从 `app/version.yml` 读取（不再由 `sync_version.py` 替换 `config.html`）
 - 大版本号（如 v5.0 → v6.0）用于重大功能更新或架构变更
 - 小版本号（如 v5.0 → v5.1）用于功能新增或较大的修复
 - 补丁版本号（如 v5.1 → v5.1.1）用于兼容性修复、文案优化、界面微调等不改变整体架构的更新
@@ -121,7 +121,7 @@ mw_archive/
 
 ### 发布流程（标准）
 1. 功能开发完成
-2. 人工确认要发布的版本号（修改 `version.yml`）
+2. 人工确认要发布的版本号（修改 `app/version.yml`）
 3. AI 负责:
    - 总结本次更新内容
    - 更新/创建 `doc/logs/vX.X.X_update_log.md`

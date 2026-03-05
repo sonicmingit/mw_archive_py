@@ -1,7 +1,7 @@
 <#
 脚本说明：
 - 用于“一键发布”当前 main 代码：仅打 tag 并推送。
-- 版本来源为仓库根目录 version.yml 的 project_version。
+- 版本来源为 app/version.yml 的 project_version。
 - 脚本不会执行 git add / git commit，代码提交需人工提前完成。
 - 当 tag（如 v5.2.0）推送到远端后，GitHub Actions 会自动创建 Release。
 #>
@@ -11,14 +11,14 @@ $ErrorActionPreference = "Stop"
 
 # 计算仓库根目录（当前脚本位于 scripts/ 下）
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$versionFile = Join-Path $repoRoot "version.yml"
+$versionFile = Join-Path $repoRoot "app/version.yml"
 
 # 基础校验：版本配置文件必须存在
 if (-not (Test-Path $versionFile)) {
-  throw "version.yml 不存在: $versionFile"
+  throw "app/version.yml 不存在: $versionFile"
 }
 
-# 从 version.yml 提取 project_version（要求 X.Y.Z）
+# 从 app/version.yml 提取 project_version（要求 X.Y.Z）
 $projectVersion = ""
 Get-Content $versionFile | ForEach-Object {
   if ($_ -match '^\s*project_version\s*:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$') {
@@ -27,7 +27,7 @@ Get-Content $versionFile | ForEach-Object {
 }
 
 if (-not $projectVersion) {
-  throw "version.yml 中未找到 project_version"
+  throw "app/version.yml 中未找到 project_version"
 }
 
 # 规范化 tag 格式：v<project_version>

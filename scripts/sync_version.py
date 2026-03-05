@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 脚本说明：
-- 读取仓库根目录 version.yml，作为唯一版本源。
+- 读取 app/version.yml，作为唯一版本源。
 - 将版本号同步到项目内多个目标文件，避免手工改漏。
 - 当前同步目标：
   1) plugin/tampermonkey/mw_quick_archive.user.js 的 @version
@@ -20,7 +20,7 @@ from typing import Dict, List
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-VERSION_FILE = REPO_ROOT / "version.yml"
+VERSION_FILE = REPO_ROOT / "app" / "version.yml"
 
 
 def load_version_cfg(path: Path) -> Dict[str, str]:
@@ -43,7 +43,7 @@ def load_version_cfg(path: Path) -> Dict[str, str]:
     required = ["project_version", "tampermonkey_version", "chrome_extension_version"]
     missing = [k for k in required if not cfg.get(k)]
     if missing:
-        raise RuntimeError(f"version.yml 缺少字段: {', '.join(missing)}")
+        raise RuntimeError(f"app/version.yml 缺少字段: {', '.join(missing)}")
     return cfg
 
 

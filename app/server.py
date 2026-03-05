@@ -34,8 +34,9 @@ from three_mf_parser import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-REPO_ROOT = BASE_DIR.parent
-VERSION_FILE = REPO_ROOT / "version.yml"
+VERSION_FILE_CANDIDATES = [
+    BASE_DIR / "version.yml",
+]
 CONFIG_PATH = BASE_DIR / "config.json"
 GALLERY_FLAGS_PATH = BASE_DIR / "gallery_flags.json"
 TMP_DIR = BASE_DIR / "tmp"
@@ -50,20 +51,22 @@ MANUAL_COUNTER_FILE = "_manual_import_counter.json"
 
 
 def load_project_version() -> str:
-    """读取根目录 version.yml 中的 project_version。"""
-    if not VERSION_FILE.exists():
-        return "0.0.0"
-    try:
-        for raw in VERSION_FILE.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            if key.strip() == "project_version":
-                ver = value.strip().strip("'\"")
-                return ver or "0.0.0"
-    except Exception:
-        return "0.0.0"
+    """读取 app/version.yml 中的 project_version。"""
+    for version_file in VERSION_FILE_CANDIDATES:
+        if not version_file.exists():
+            continue
+        try:
+            for raw in version_file.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                if key.strip() == "project_version":
+                    ver = value.strip().strip("'\"")
+                    if ver:
+                        return ver
+        except Exception:
+            continue
     return "0.0.0"
 
 
