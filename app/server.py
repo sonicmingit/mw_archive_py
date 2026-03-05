@@ -13,10 +13,11 @@ from urllib.parse import urlparse
 
 import requests
 import uvicorn
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from archiver import (
     archive_model,
@@ -33,6 +34,8 @@ from three_mf_parser import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BASE_DIR.parent
+VERSION_FILE = REPO_ROOT / "version.yml"
 CONFIG_PATH = BASE_DIR / "config.json"
 GALLERY_FLAGS_PATH = BASE_DIR / "gallery_flags.json"
 TMP_DIR = BASE_DIR / "tmp"
@@ -44,6 +47,31 @@ DEFAULT_CONFIG = {
 }
 MANUAL_COUNTER_LOCK = threading.Lock()
 MANUAL_COUNTER_FILE = "_manual_import_counter.json"
+
+
+def load_project_version() -> str:
+    """读取根目录 version.yml 中的 project_version。"""
+    if not VERSION_FILE.exists():
+        return "0.0.0"
+    try:
+        for raw in VERSION_FILE.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            if key.strip() == "project_version":
+                ver = value.strip().strip("'\"")
+                return ver or "0.0.0"
+    except Exception:
+        return "0.0.0"
+    return "0.0.0"
+
+
+def to_short_version(version: str) -> str:
+    parts = [p for p in str(version or "").split(".") if p]
+    if len(parts) >= 2:
+        return f"{parts[0]}.{parts[1]}"
+    return version or "0.0"
 
 # 日志
 LOGS_DIR = BASE_DIR / "logs"
@@ -1245,6 +1273,7 @@ MANUAL_DRAFT_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.mount("/files", StaticFiles(directory=CFG["download_dir"], html=True), name="files")
 app.mount("/tmp", StaticFiles(directory=TMP_DIR), name="tmp")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 @app.get("/")
@@ -1253,8 +1282,16 @@ async def gallery_page():
 
 
 @app.get("/config")
-async def config_page():
-    return FileResponse(BASE_DIR / "templates" / "config.html")
+async def config_page(request: Request):
+    project_version = load_project_version()
+    return templates.TemplateResponse(
+        "config.html",
+        {
+            "request": request,
+            "project_version": project_version,
+            "project_version_short": to_short_version(project_version),
+        },
+    )
 
 
 @app.get("/api/config")

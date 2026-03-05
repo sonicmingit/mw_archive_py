@@ -7,8 +7,7 @@
 - 当前同步目标：
   1) plugin/tampermonkey/mw_quick_archive.user.js 的 @version
   2) plugin/chrome_extension/mw_quick_archive_ext/manifest.json 的 version
-  3) app/templates/config.html 的页面显示版本与静态资源 query 版本
-  4) README.md 的“当前版本”首行
+  3) README.md 的“当前版本”首行
 - 设计为可重复执行：若目标文件已是最新版本，则不会写入。
 """
 
@@ -69,31 +68,6 @@ def update_manifest(path: Path, version: str) -> bool:
     return True
 
 
-def update_config_html(path: Path, project_version: str) -> bool:
-    content = path.read_text(encoding="utf-8")
-    # 配置页当前只展示到主次版本（例如 5.2）
-    short_ver = ".".join(project_version.split(".")[:2])
-
-    # 更新页面头部显示版本
-    updated = re.sub(
-        r'(<span class="version">)v[^<]+(</span>)',
-        rf"\g<1>v{short_ver}\g<2>",
-        content,
-        count=1,
-    )
-    # 更新 manual_import.css 的 query 版本，便于静态资源缓存刷新
-    updated = re.sub(
-        r'(/static/css/manual_import\.css\?v=)[^"\']+',
-        rf"\g<1>{short_ver}",
-        updated,
-        count=1,
-    )
-    if updated == content:
-        return False
-    path.write_text(updated, encoding="utf-8")
-    return True
-
-
 def update_readme(path: Path, project_version: str) -> bool:
     content = path.read_text(encoding="utf-8")
     # 仅替换“当前版本”第一条版本行，不影响历史日志列表
@@ -118,7 +92,6 @@ def main() -> int:
     targets = [
         ("plugin/tampermonkey/mw_quick_archive.user.js", update_tampermonkey, cfg["tampermonkey_version"]),
         ("plugin/chrome_extension/mw_quick_archive_ext/manifest.json", update_manifest, cfg["chrome_extension_version"]),
-        ("app/templates/config.html", update_config_html, cfg["project_version"]),
         ("README.md", update_readme, cfg["project_version"]),
     ]
 

@@ -96,9 +96,10 @@ mw_archive/
   ```
 - `scripts/sync_version.py` 负责把 `version.yml` 同步到以下文件:
   - `README.md`（当前版本）
-  - `app/templates/config.html`（页面版本、静态资源 query 版本）
   - `plugin/tampermonkey/mw_quick_archive.user.js`（`@version`）
   - `plugin/chrome_extension/mw_quick_archive_ext/manifest.json`（`version`）
+- 配置页版本展示说明：
+  - `/config` 页面版本由后端在渲染时从根目录 `version.yml` 读取（不再由 `sync_version.py` 替换 `config.html`）
 - 大版本号（如 v5.0 → v6.0）用于重大功能更新或架构变更
 - 小版本号（如 v5.0 → v5.1）用于功能新增或较大的修复
 - 补丁版本号（如 v5.1 → v5.1.1）用于兼容性修复、文案优化、界面微调等不改变整体架构的更新
