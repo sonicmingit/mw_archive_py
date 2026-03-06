@@ -1,7 +1,7 @@
 # 本地模型管理工具 开发快速定位手册
 
 > 目的：后续修改时先读本文件，快速定位代码入口与逻辑分层，避免反复全量扫描。
-> 适用版本：v5.2（当前代码状态）
+> 适用版本：v5.3（当前代码状态）
 
 ## 1. 入口与运行模式
 
@@ -68,8 +68,20 @@
 ### 2.5 配置文件行为（重点）
 - 文件：`app/server.py -> load_config()`
 - 当前规则：
-  - `app/config.json` 保留用户写的相对路径（不会因打开配置页而回写为绝对路径）
+  - 配置目录统一为 `app/config/`
+  - 运行时配置文件：`app/config/config.json`
+  - 画廊状态文件：`app/config/gallery_flags.json`
+  - Cookie 存储文件：`app/config/cookie.json`
+  - 若新路径文件不存在，会优先尝试从旧路径迁移：
+    - `app/config.json`
+    - `app/gallery_flags.json`
+    - `app/cookie.txt`
+  - `app/config/config.json` 保留用户写的相对路径（不会因打开配置页而回写为绝对路径）
   - 运行时返回绝对路径给程序使用
+  - Docker 若只挂载空的 `app/config/` 目录，服务启动后会自动生成：
+    - `config.json`
+    - `gallery_flags.json`
+    - `cookie.json`
 - 相关接口：
   - `GET /api/config`
   - `GET /config`（模板渲染）
@@ -146,5 +158,76 @@
 
 ## 5. 当前状态备注
 
-- 当前项目未启用独立 `app/tg_push.py`（文件不存在）。
-- 若后续恢复 Telegram 推送，请在本文件补充“配置字段 + 触发时机 + 接口入口”。
+- Telegram 推送与命令交互已接入：
+  - 模块：`app/tg_push.py`
+  - 统一通知分发：`app/notify_dispatcher.py`
+  - 配置来源：`app/config/config.json -> notifications.telegram`
+  - 配置接口：`GET/POST /api/notify-config`
+  - 触发点：`POST /api/archive` 成功推送、失败/限流/Cookie 异常告警
+  - 命令支持：`/help`、`/cookies`、`/count`、`/search 关键词`、发送模型链接触发归档
+  - 成功消息地址：使用 `notifications.telegram.web_base_url + /v2/files/{model_dir}`
+  - 线程启停规则：
+    - 启动入口：`app/server.py -> sync_telegram_service_state()`
+    - 实际由 `NotificationDispatcher.start()` 分发到已注册渠道
+    - `startup` 时不再无条件启动轮询线程，而是由 `TelegramPushService.should_run()` 判断
+    - 当前判断条件：`enable_push = true` 且 `bot_token` 非空
+    - 保存 `/api/notify-config` 后会立即同步启停线程，无需重启服务
+  - 排障重点：
+    - 若 Telegram 开关关闭，项目启动时不应出现“Telegram 命令轮询线程已启动”
+    - 若看到相同日志重复输出，优先检查 `app/server.py` 的 logger handler 是否重复挂载
+- Cookie 存储当前为 JSON 结构：
+  - 文件：`app/config/cookie.json`
+  - 结构：
+    - `{"cn": [{"value":"...","status":"active"}], "global": [...], "_meta": {"rr_index": {"cn": 0, "global": 0}}}`
+  - 旧 `app/cookie.txt` 会在首次启动时迁移为 `cn[0]`
+  - 现阶段 `read_cookie(CFG)` 默认仍取指定平台的第一个 Cookie，保持旧接口兼容
+  - 平台识别：
+    - `makerworld.com.cn` -> `cn`
+    - `makerworld.com` -> `global`
+  - 关键后端函数：
+    - `detect_cookie_platform()`
+    - `build_cookie_candidate_order()`
+    - `run_with_cookie_failover()`
+    - `mark_cookie_result()`
+  - 状态切换：
+    - `401/403/Cloudflare` -> `invalid`
+    - `429` -> `cooldown`
+    - 成功请求 -> `active`
+    - 冷却超时后自动恢复 `active`
+  - 多 Cookie 开关：
+    - 来源：`app/version.yml -> multi_cookie_enabled`
+    - 关闭时仅使用各平台第一个 Cookie
+    - 开启时配置页展示“添加 Cookie”按钮，后端启用轮询切换
+  - `POST /api/cookie` 已兼容：
+    - 旧写法：`{"cookie": "..."}`
+    - 新写法：`{"platform":"cn","cookies":["a","b"]}`
+  - 新接口：
+    - `GET /api/cookies`
+    - `POST /api/cookies`
+  - 配置页：
+    - 不再展示下载目录、日志目录
+    - 不再提供独立“测试可用性”按钮
+    - Cookie 状态仅基于真实归档 / 补下载 / 重下载链路更新，避免站点主页 403 造成误判
+    - 多 Cookie 关闭时标题显示为 `Cookie`，开启时才显示 `Cookie 1/2/...`
+  - Telegram 告警规则：
+    - 归档入口异常不再直接发送“Cookie 失效告警”
+    - 仅真实模型下载失败相关链路发送 Cookie 告警：
+      - 初次归档出现 `missing_3mf`
+      - 缺失 3MF 重试
+      - 实例重下
+      - 模型重下
+    - 告警内容包含平台与 Cookie 序号
+    - 告警格式统一为：
+      - 标题
+      - 摘要
+      - 平台
+      - Cookie 序号
+      - 状态
+      - 说明
+      - 错误/建议
+  - 业务代码不再直接调用 `TG_SERVICE.notify_*`
+    - 统一走 `NOTIFIER.notify_success(...)`
+    - 统一走 `NOTIFIER.notify_alert(...)`
+    - 后续新增企微等渠道时，只需注册到 `NotificationDispatcher`
+
+

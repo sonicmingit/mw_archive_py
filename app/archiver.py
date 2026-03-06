@@ -951,9 +951,15 @@ def build_meta(design: dict, summary: dict, design_images: List[dict], cover_met
     )
     author_avatar_local = author.get("avatarLocal") or ""
     author_rel = f"images/{author_avatar_local}" if author_avatar_local else ""
+    source_url = str(design.get("url") or "").strip().lower()
+    if "makerworld.com/" in source_url and "makerworld.com.cn" not in source_url:
+        source_value = "mw_global"
+    else:
+        source_value = "mw_cn"
 
     return {
         "baseName": base_name,
+        "source": source_value,
         "url": design.get("url") or "",
         "id": design.get("id"),
         "slug": design.get("slug") or "",

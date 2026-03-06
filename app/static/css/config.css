@@ -118,6 +118,67 @@
     margin-bottom: var(--spacing-lg);
 }
 
+/* Telegram Notify */
+.tg-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--bg-hover);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+}
+
+.tg-toggle-title {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+}
+
+.tg-switch {
+    position: relative;
+    display: inline-block;
+    width: 60px;
+    height: 32px;
+}
+
+.tg-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.tg-slider {
+    position: absolute;
+    inset: 0;
+    background-color: #c8d1dc;
+    border-radius: 100px;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+}
+
+.tg-slider::before {
+    content: "";
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    left: 4px;
+    top: 4px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    transition: all var(--transition-fast);
+}
+
+.tg-switch input:checked + .tg-slider {
+    background-color: var(--color-primary);
+}
+
+.tg-switch input:checked + .tg-slider::before {
+    transform: translateX(28px);
+}
+
 /* Form Grid */
 .form-grid {
     display: grid;
@@ -154,6 +215,123 @@
 .cookie-toggle:hover {
     background: var(--border-color);
     color: var(--text-primary);
+}
+
+.cookie-platform-box {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--bg-card);
+    padding: var(--spacing-md);
+}
+
+.cookie-platform-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.cookie-platform-hint {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.cookie-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.cookie-row {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm);
+    background: var(--bg-hover);
+}
+
+.cookie-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.cookie-row-title {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+}
+
+.cookie-row-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.cookie-textarea {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm);
+}
+
+.cookie-eye-btn,
+.cookie-remove-btn {
+    height: 32px;
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    border: none;
+}
+
+.cookie-eye-btn,
+.cookie-remove-btn {
+    width: 32px;
+}
+
+.cookie-eye-btn:hover,
+.cookie-remove-btn:hover {
+    color: var(--text-primary);
+    background: var(--border-color-light);
+}
+
+.cookie-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-xs);
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+}
+
+.cookie-last-error {
+    color: var(--color-danger);
+}
+
+.cookie-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    text-transform: lowercase;
+}
+
+.cookie-status.status-active {
+    background: rgba(46, 204, 113, 0.14);
+    color: #1f8f4d;
+}
+
+.cookie-status.status-cooldown {
+    background: rgba(243, 156, 18, 0.14);
+    color: #b56d00;
+}
+
+.cookie-status.status-invalid {
+    background: rgba(231, 76, 60, 0.14);
+    color: #c0392b;
 }
 
 /* Archive Section */
@@ -425,4 +603,8 @@
 :root[data-theme="dark"] .status-badge.warning {
     background: rgba(255, 152, 0, 0.18);
     color: #ffc266;
+}
+
+:root[data-theme="dark"] .tg-slider {
+    background-color: #506172;
 }

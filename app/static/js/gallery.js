@@ -132,17 +132,19 @@ function sortModelsDesc(list) {
 
 function getSourceValue(m) {
   const src = String((m && m.source) || "").trim().toLowerCase();
-  if (src === "makerworld") return "makerworld";
-  if (src === "localmodel" || src === "others" || src === "other") return "localmodel";
+  if (src === "mw_cn" || src === "mw_global" || src === "localmodel" || src === "others") return src;
   const dir = m?.dir || "";
   if (dir.startsWith("LocalModel_")) return "localmodel";
-  if (dir.startsWith("Others_")) return "localmodel";
-  return "makerworld";
+  if (dir.startsWith("Others_")) return "others";
+  return "mw_cn";
 }
 
 function formatSourceLabel(value) {
+  if (value === "mw_cn") return "MakerWorld 国内";
+  if (value === "mw_global") return "MakerWorld 国际";
+  if (value === "others") return "其他来源";
   if (value === "localmodel") return "手动导入";
-  return "MakerWorld";
+  return "MakerWorld 国内";
 }
 
 function selectSource(source) {
@@ -355,8 +357,13 @@ function renderSourceMenu() {
     counts[key] = (counts[key] || 0) + 1;
   });
   const total = models.length || 0;
-  const labels = { makerworld: "MakerWorld", localmodel: "手动导入" };
-  const order = ["makerworld", "localmodel"];
+  const labels = {
+    mw_cn: "MakerWorld 国内",
+    mw_global: "MakerWorld 国际",
+    localmodel: "手动导入",
+    others: "其他来源"
+  };
+  const order = ["mw_cn", "mw_global", "localmodel", "others"];
   sourceMenu.innerHTML = "";
 
   const allBtn = document.createElement("button");

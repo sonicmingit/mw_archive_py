@@ -107,6 +107,25 @@
         };
     }
 
+    function normalizeSource(meta) {
+        var source = String((meta && meta.source) || '').trim().toLowerCase();
+        if (source === 'mw_cn' || source === 'mw_global' || source === 'localmodel' || source === 'others') {
+            return source;
+        }
+        var url = String((meta && meta.url) || '').trim().toLowerCase();
+        if (url.indexOf('makerworld.com/') >= 0 && url.indexOf('makerworld.com.cn') < 0) {
+            return 'mw_global';
+        }
+        return 'mw_cn';
+    }
+
+    function formatSourceLabel(source) {
+        if (source === 'mw_global') return 'MakerWorld 国际';
+        if (source === 'localmodel') return '手动导入';
+        if (source === 'others') return '其他来源';
+        return 'MakerWorld 国内';
+    }
+
     function normalizeImages(meta) {
         var raw = meta.images;
         var design = [], summary = [], cover = null;
@@ -320,8 +339,16 @@
         el.innerHTML = '<i class="far fa-calendar-alt"></i> 采集于 ' + dateStr;
     }
 
+    function renderSource(meta) {
+        var el = document.getElementById('sourceBadge');
+        if (!el) return;
+        var source = normalizeSource(meta);
+        el.textContent = formatSourceLabel(source);
+        el.className = 'source-badge source-badge--' + source;
+    }
+
     function renderStats(meta) {
-        var source = String(meta.source || '').toLowerCase();
+        var source = normalizeSource(meta);
         var isOthers = source === 'others' || source === 'localmodel';
         if (isOthers) return;
         var stats = normalizeStats(meta);
@@ -1198,6 +1225,7 @@
             // 渲染各区域
             renderTitle(meta);
             renderAuthor(meta);
+            renderSource(meta);
             renderHero(meta, images);
             renderCollectDate(meta);
             renderStats(meta);

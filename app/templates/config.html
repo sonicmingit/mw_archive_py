@@ -63,6 +63,9 @@
         <button class="tab" data-tab="missing">
           <i class="fas fa-exclamation-triangle"></i> 缺失记录
         </button>
+        <button class="tab" data-tab="notify">
+          <i class="fas fa-bell"></i> 通知
+        </button>
         <button class="tab" data-tab="maintenance">
           <i class="fas fa-screwdriver-wrench"></i> 其他功能
         </button>
@@ -72,32 +75,37 @@
       <div class="tab-content active" id="tab-config">
         <div class="form-section">
           <h3>基础配置</h3>
-          <p class="description">配置 Cookie 和下载目录,确保归档功能正常运行</p>
-
-          <div class="form-group">
-            <label class="form-label">Cookie</label>
-            <div class="cookie-input-wrapper">
-              <textarea id="cookieInput" class="form-textarea" rows="4" placeholder="请粘贴包含 cf_clearance 的完整 Cookie"
-                style="font-family: var(--font-family-mono); font-size: var(--font-size-sm);"></textarea>
-              <button class="cookie-toggle" type="button" id="cookieToggle" title="显示/隐藏">
-                <i class="fas fa-eye"></i>
-              </button>
-            </div>
-            <div class="text-muted text-small mt-sm" id="cookieTime">Cookie 更新时间: -</div>
-          </div>
+          <p class="description">配置国内/国际平台 Cookie，确保归档功能正常运行</p>
 
           <div class="form-grid">
             <div class="form-group">
-              <label class="form-label">下载目录</label>
-              <input type="text" id="downloadDir" class="form-input" readonly />
+              <label class="form-label">国内平台 Cookie</label>
+              <div class="cookie-platform-box">
+                <div class="cookie-platform-head">
+                  <div class="cookie-platform-hint">用于 `makerworld.com.cn` 归档</div>
+                  <button class="btn btn-outline cookie-add-btn" type="button" id="addCnCookieBtn" onclick="addCookieRow('cn')">
+                    <i class="fas fa-plus"></i> 添加
+                  </button>
+                </div>
+                <div id="cookieCnList" class="cookie-list"></div>
+              </div>
             </div>
             <div class="form-group">
-              <label class="form-label">日志目录</label>
-              <input type="text" id="logsDir" class="form-input" readonly />
+              <label class="form-label">国际平台 Cookie</label>
+              <div class="cookie-platform-box">
+                <div class="cookie-platform-head">
+                  <div class="cookie-platform-hint">用于 `makerworld.com` 归档</div>
+                  <button class="btn btn-outline cookie-add-btn" type="button" id="addGlobalCookieBtn" onclick="addCookieRow('global')">
+                    <i class="fas fa-plus"></i> 添加
+                  </button>
+                </div>
+                <div id="cookieGlobalList" class="cookie-list"></div>
+              </div>
             </div>
           </div>
+          <div class="text-muted text-small mt-sm" id="cookieTime">Cookie 更新时间: -</div>
 
-          <button class="btn btn-primary" onclick="saveCookie()">
+          <button class="btn btn-primary" onclick="saveCookies()">
             <i class="fas fa-save"></i> 保存 Cookie
           </button>
         </div>
@@ -187,6 +195,44 @@
           </div>
 
           <div id="missingBox"></div>
+        </div>
+      </div>
+
+      <!-- Tab Content: Notify -->
+      <div class="tab-content" id="tab-notify">
+        <div class="form-section">
+          <h3>通知配置（Telegram）</h3>
+          <div class="tg-toggle-row">
+            <span class="tg-toggle-title">推送开关</span>
+            <label class="tg-switch" for="tgEnablePush">
+              <input type="checkbox" id="tgEnablePush">
+              <span class="tg-slider"></span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Bot Token</label>
+            <input type="text" id="tgBotToken" class="form-input" placeholder="123456:ABC-DEF...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认 Chat ID（推送目标，可多个）</label>
+            <input type="text" id="tgChatId" class="form-input" placeholder="-1001234567890, 496548857">
+            <div class="text-muted text-small mt-sm">多个 Chat ID 用英文逗号分隔。</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">项目在线地址前缀</label>
+            <input type="text" id="tgWebBaseUrl" class="form-input" placeholder="http://127.0.0.1:8000">
+            <div class="text-muted text-small mt-sm">用于 Telegram 成功消息中生成本地在线访问地址（/v2/files/...）</div>
+          </div>
+
+          <div class="table-actions">
+            <button class="btn btn-primary" type="button" onclick="saveNotifyConfig()">
+              <i class="fas fa-save"></i> 保存通知配置
+            </button>
+            <button class="btn btn-secondary" type="button" onclick="testNotifyConnection()">
+              <i class="fas fa-satellite-dish"></i> 测试连接
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -331,24 +377,124 @@
       }
     }
 
-    // Cookie Toggle Visibility
-    document.getElementById('cookieToggle')?.addEventListener('click', function () {
-      const textarea = document.getElementById('cookieInput');
-      const icon = this.querySelector('i');
+    const MULTI_COOKIE_ENABLED = {{ 'true' if multi_cookie_enabled else 'false' }};
 
-      if (textarea.type === 'password' || textarea.style.webkitTextSecurity === 'disc') {
-        textarea.style.webkitTextSecurity = 'none';
-        icon.className = 'fas fa-eye-slash';
-      } else {
-        textarea.style.webkitTextSecurity = 'disc';
-        icon.className = 'fas fa-eye';
+    function maskCookieTextarea(textarea, masked) {
+      if (!textarea) return;
+      textarea.style.webkitTextSecurity = masked ? 'disc' : 'none';
+    }
+
+    function createCookieRow(platform, item = {}, index = 0) {
+      const value = item.value || '';
+      const status = item.status || 'active';
+      const lastError = item.last_error || '';
+      const successCount = item.success_count || 0;
+      const failureCount = item.failure_count || 0;
+      const cooldownUntil = item.cooldown_until || '';
+      const canDelete = MULTI_COOKIE_ENABLED;
+      const titleText = MULTI_COOKIE_ENABLED ? `Cookie ${index + 1}` : 'Cookie';
+      return `
+        <div class="cookie-row" data-platform="${platform}">
+          <div class="cookie-row-head">
+            <span class="cookie-row-title">${titleText}</span>
+            <div class="cookie-row-actions">
+              <span class="cookie-status status-${status}">${status}</span>
+              <button class="cookie-eye-btn" type="button" onclick="toggleCookieMask(this)">
+                <i class="fas fa-eye"></i>
+              </button>
+              ${canDelete ? `<button class="cookie-remove-btn" type="button" onclick="removeCookieRow(this)">
+                <i class="fas fa-trash"></i>
+              </button>` : ''}
+            </div>
+          </div>
+          <textarea class="form-textarea cookie-textarea" rows="3" placeholder="请粘贴完整 Cookie">${value}</textarea>
+          <div class="cookie-row-meta">
+            <span>成功 ${successCount}</span>
+            <span>失败 ${failureCount}</span>
+            ${cooldownUntil ? `<span>冷却至 ${cooldownUntil}</span>` : ''}
+            ${lastError ? `<span class="cookie-last-error">最近错误: ${lastError}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function getCookieListEl(platform) {
+      return document.getElementById(platform === 'global' ? 'cookieGlobalList' : 'cookieCnList');
+    }
+
+    function toggleCookieMask(btn) {
+      const row = btn.closest('.cookie-row');
+      const textarea = row ? row.querySelector('.cookie-textarea') : null;
+      const icon = btn.querySelector('i');
+      if (!textarea || !icon) return;
+      const masked = textarea.style.webkitTextSecurity === 'disc';
+      maskCookieTextarea(textarea, !masked);
+      icon.className = masked ? 'fas fa-eye-slash' : 'fas fa-eye';
+    }
+
+    function removeCookieRow(btn) {
+      const row = btn.closest('.cookie-row');
+      const list = row ? row.parentElement : null;
+      if (!row || !list) return;
+      row.remove();
+      if (!list.children.length) {
+        addCookieRow(list.id === 'cookieGlobalList' ? 'global' : 'cn');
       }
-    });
+      refreshCookieTitles();
+    }
 
-    // Initialize cookie masking
-    const cookieInput = document.getElementById('cookieInput');
-    if (cookieInput) {
-      cookieInput.style.webkitTextSecurity = 'disc';
+    function refreshCookieTitles() {
+      ['cn', 'global'].forEach(platform => {
+        Array.from(getCookieListEl(platform).querySelectorAll('.cookie-row')).forEach((row, idx) => {
+          const title = row.querySelector('.cookie-row-title');
+          if (title) title.textContent = MULTI_COOKIE_ENABLED ? `Cookie ${idx + 1}` : 'Cookie';
+          row.dataset.index = String(idx);
+        });
+      });
+    }
+
+    function addCookieRow(platform, item = {}) {
+      const list = getCookieListEl(platform);
+      if (!list) return;
+      if (!MULTI_COOKIE_ENABLED && list.children.length > 0) return;
+      const index = list.children.length;
+      list.insertAdjacentHTML('beforeend', createCookieRow(platform, item, index));
+      const textarea = list.lastElementChild ? list.lastElementChild.querySelector('.cookie-textarea') : null;
+      maskCookieTextarea(textarea, true);
+      refreshCookieTitles();
+    }
+
+    function renderCookieGroups(store = {}) {
+      const cnList = getCookieListEl('cn');
+      const globalList = getCookieListEl('global');
+      if (!cnList || !globalList) return;
+      cnList.innerHTML = '';
+      globalList.innerHTML = '';
+      const cnItems = Array.isArray(store.cn) ? store.cn : [];
+      const globalItems = Array.isArray(store.global) ? store.global : [];
+      (cnItems.length ? cnItems : [{}]).forEach(item => addCookieRow('cn', item));
+      (globalItems.length ? globalItems : [{}]).forEach(item => addCookieRow('global', item));
+      const addCnBtn = document.getElementById('addCnCookieBtn');
+      const addGlobalBtn = document.getElementById('addGlobalCookieBtn');
+      if (addCnBtn) addCnBtn.style.display = MULTI_COOKIE_ENABLED ? 'inline-flex' : 'none';
+      if (addGlobalBtn) addGlobalBtn.style.display = MULTI_COOKIE_ENABLED ? 'inline-flex' : 'none';
+    }
+
+    function collectCookieStore() {
+      const build = (platform) => {
+        return Array.from(getCookieListEl(platform).querySelectorAll('.cookie-row')).map(row => {
+          const textarea = row.querySelector('.cookie-textarea');
+          const statusEl = row.querySelector('.cookie-status');
+          return {
+            value: (textarea ? textarea.value : '').trim(),
+            status: statusEl ? String(statusEl.textContent || 'active').trim() : 'active',
+          };
+        }).filter(item => item.value);
+      };
+      return {
+        cn: build('cn'),
+        global: build('global'),
+      };
     }
 
     // Log Functions
@@ -369,28 +515,80 @@
     async function loadConfig() {
       const res = await fetch('/api/config');
       const data = await res.json();
-      document.getElementById('downloadDir').value = data.download_dir;
-      document.getElementById('logsDir').value = data.logs_dir;
       document.getElementById('cookieTime').textContent = 'Cookie 更新时间: ' + (data.cookie_updated_at || '-');
+      renderCookieGroups((data && data.cookie_store) || {});
+      await loadNotifyConfig();
     }
 
-    async function saveCookie() {
-      const cookie = document.getElementById('cookieInput').value.trim();
-      if (!cookie) {
-        alert('请填写 cookie');
+    async function loadNotifyConfig() {
+      const res = await fetch('/api/notify-config');
+      if (!res.ok) return;
+      const data = await res.json();
+      const tg = (data && data.telegram) || {};
+      document.getElementById('tgEnablePush').checked = !!tg.enable_push;
+      document.getElementById('tgBotToken').value = tg.bot_token || '';
+      document.getElementById('tgChatId').value = tg.chat_id || '';
+      document.getElementById('tgWebBaseUrl').value = tg.web_base_url || 'http://127.0.0.1:8000';
+    }
+
+    async function saveNotifyConfig() {
+      const payload = {
+        telegram: {
+          enable_push: !!document.getElementById('tgEnablePush').checked,
+          bot_token: (document.getElementById('tgBotToken').value || '').trim(),
+          chat_id: (document.getElementById('tgChatId').value || '').trim(),
+          web_base_url: (document.getElementById('tgWebBaseUrl').value || '').trim(),
+        }
+      };
+      appendLog('保存通知配置...');
+      const res = await fetch('/api/notify-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        appendLog('通知配置已保存');
+        alert('通知配置已保存');
+      } else {
+        const err = await res.text();
+        appendLog('通知配置保存失败: ' + err);
+        alert('通知配置保存失败');
+      }
+    }
+
+    async function testNotifyConnection() {
+      appendLog('测试 Telegram 连接...');
+      const res = await fetch('/api/notify-test', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        const msg = `测试消息已发送：成功 ${data.success_count}/${data.total_chat_ids}`;
+        appendLog(msg);
+        alert(msg);
+      } else {
+        const err = await res.text();
+        appendLog('测试连接失败: ' + err);
+        alert('测试连接失败: ' + err);
+      }
+    }
+
+    async function saveCookies() {
+      const cookie_store = collectCookieStore();
+      if ((!cookie_store.cn || !cookie_store.cn.length) && (!cookie_store.global || !cookie_store.global.length)) {
+        alert('请至少填写一个 Cookie');
         return;
       }
       appendLog('保存 Cookie...');
-      const res = await fetch('/api/cookie', {
+      const res = await fetch('/api/cookies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cookie })
+        body: JSON.stringify({ cookie_store })
       });
       if (res.ok) {
         appendLog('Cookie 已保存');
         loadConfig();
       } else {
-        appendLog('保存失败');
+        const err = await res.text();
+        appendLog('保存失败: ' + err);
       }
     }
 

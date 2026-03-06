@@ -66,6 +66,13 @@
 
 ### 历史记录
 
+#### 2026-03-06 11:35
+- 版本号：`v5.3`
+- 更新说明链接：[`doc/logs/v5.3_update_log.md`](./v5.3_update_log.md)
+- 本次重点：新增 Telegram 推送与机器人交互；新增国内 / 国际平台 Cookie 支持；Docker 部署改为推荐持久化 `app/config/` 目录。
+- 同步人：AI（Codex）
+- 备注：同步根 `README.md` 当前版本区块，并补充 Docker 升级说明。
+
 #### 2026-03-05 17:40
 - 版本号：`v5.2.3`
 - 更新说明链接：[`doc/logs/v5.2.3_update_log.md`](./v5.2.3_update_log.md)
@@ -89,6 +96,7 @@
 
 ## 版本日志索引
 
+- [`v5.3_update_log.md`](./v5.3_update_log.md)
 - [`v5.2.3_update_log.md`](./v5.2.3_update_log.md)
 - [`v5.2.2_update_log.md`](./v5.2.2_update_log.md)
 - [`v5.2_update_log.md`](./v5.2_update_log.md)

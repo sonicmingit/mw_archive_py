@@ -2,21 +2,55 @@
 
 ![mw_archive](https://aliyun-wb-h9vflo19he.oss-cn-shanghai.aliyuncs.com/use/makerworld_archive.png)
 
-一个面向本地模型管理的工具，支持 3MF 文件上传解析、模型库浏览与维护；
+一个面向本地模型管理的工具，支持 MakerWorld 模型归档、本地 3MF 解析导入、模型库浏览与维护。
 
 ## 当前版本
-- `v5.2.3`
-- 更新说明见 [doc/logs/v5.2.3_update_log.md](doc/logs/v5.2.3_update_log.md)
-- 本次重点：修复暗黑模式下手动导入弹窗显示问题；新增归档更新独立日志，记录跳过/失败/未定位明细。
+- `v5.3`
+- 更新说明见 [doc/logs/v5.3_update_log.md](doc/logs/v5.3_update_log.md)
+- 本次重点：
+  - 新增 Telegram 推送与机器人交互；
+  - 新增国内 / 国际平台 Cookie 支持；
+  - Docker 部署配置目录统一迁移到 `app/config/`。
+  
+### v5.3 Docker 升级注意事项
+如果你是从旧版本 Docker 升级到 `v5.3`，重点注意这次配置结构已经变化：
+- 旧版常见挂载：
+  - `./app/cookie.txt:/app/cookie.txt`
+  - `./app/config.json:/app/config.json`
+- `v5.3` 推荐改为直接挂载整个配置目录：
+  - `./app/config:/app/config`
+- 新目录下的关键文件：
+  - `app/config/config.json`
+  - `app/config/cookie.json`
+  - `app/config/gallery_flags.json`
+- 升级前建议先备份：
+  - `app/data/`
+  - `app/logs/`
+  - `app/config/` 或旧的 `app/config.json`、`app/cookie.txt`
+
+### Docker 升级步骤（推荐）
+1. 停止并删除旧容器。
+2. 备份宿主机上的 `app/data`、`app/logs`、`app/config`（如果没有 `app/config`，就备份旧的 `app/config.json` 和 `app/cookie.txt`）。
+3. 将挂载方式改为：
+   - `./app/data:/app/data`
+   - `./app/logs:/app/logs`
+   - `./app/config:/app/config`
+4. 启动新版本容器。
+5. 首次启动后检查 `app/config/` 目录：如果为空，程序会自动生成默认配置文件；如果存在旧配置，程序会自动迁移到新目录。
+6. 打开 `/config` 页面确认：
+   - Cookie 是否正常显示；
+   - Telegram 配置是否保留；
+   - 国内 / 国际平台 Cookie 是否分组正常。
 
 ## 核心能力
-- 本地上传 3MF 后自动解析并入库，快速建立个人模型库
-- 模型库支持浏览、搜索、筛选与状态标记（如收藏、已打印）
+- 支持本地上传 3MF 后自动解析并入库，快速建立个人模型库
+- 支持模型库浏览、搜索、筛选与状态标记（如收藏、已打印）
 - 支持手动导入本地模型与附件管理，便于整理历史文件
-- 解析结果可直接用于本地详情页查看，减少反复打开源站
-- 提供缺失文件记录与重试机制，降低导入失败后的手工处理成本
-- 支持批量修复/重建历史页面，版本升级后可一键同步旧数据展示效果
-- 支持通过浏览器插件/油猴脚本从 MakerWorld 快速导入模型（辅助能力）
+- 支持缺失文件记录与重试机制，降低导入失败后的手工处理成本
+- 支持从归档模型、图片、实例 3MF、说明等内容到本地
+- 支持一键重建历史归档页面，版本升级后同步旧数据展示效果
+- 支持 Telegram 成功通知、失败告警与机器人链接归档
+- 支持国内 / 国际平台分别配置 Cookie
 
 ## 项目结构
 ```text
@@ -24,8 +58,12 @@ mw_archive/
 ├─ app/
 │  ├─ archiver.py
 │  ├─ server.py
-│  ├─ config.json
-│  ├─ cookie.txt
+│  ├─ tg_push.py
+│  ├─ notify_dispatcher.py
+│  ├─ config/
+│  │  ├─ config.json
+│  │  ├─ cookie.json
+│  │  └─ gallery_flags.json
 │  ├─ data/
 │  ├─ logs/
 │  ├─ static/
@@ -70,25 +108,31 @@ python server.py
 - 配置页：`http://127.0.0.1:8000/config`
 
 ## Docker 启动
-在当前目录下，**先创建 `app/data`、`app/logs` 目录和 `app/cookie.txt` 空文件**
+推荐先在宿主机创建目录：
+- `app/data`
+- `app/logs`
+- `app/config`
 
-> 注: logs和cookie.txt不是必须的，可以不挂载
+注意：
+- `app/config` 现在是推荐挂载项；
+- 即使这个目录是空的，容器首次启动后也会自动生成默认配置文件；
 
+### 直接拉取
 ```bash
-# 直接拉取
-docker run -d \
+
+ docker run -d \
   --name mw-archiver \
   -p 8000:8000 \
   -v $PWD/app/data:/app/data \
   -v $PWD/app/logs:/app/logs \
-  -v $PWD/app/cookie.txt:/app/cookie.txt \
+  -v $PWD/app/config:/app/config \
   sonicming/mw-archiver:latest
 ```
 
 如果网络问题可以更换镜像源 `docker.1ms.run/sonicming/mw-archiver:latest`
 
+### 本地构建
 ```bash
-# 本地构建
 bash docker_build.sh
 
 docker run -d \
@@ -96,25 +140,21 @@ docker run -d \
   -p 8000:8000 \
   -v $PWD/app/data:/app/data \
   -v $PWD/app/logs:/app/logs \
-  -v $PWD/app/cookie.txt:/app/cookie.txt \
+  -v $PWD/app/config:/app/config \
   mw-archiver
 ```
 
 ### Docker 参数详细说明
-
-* **`-d`**：后台运行容器（detach 模式），容器启动后不会阻塞当前终端。
-* **`--name mw-archiver`**：为容器指定一个自定义名称标识（即 `mw-archiver`），方便后续使用 `docker logs mw-archiver` 或 `docker stop mw-archiver` 进行管理。
-* **`-p 8000:8000`**：端口映射，格式为 `宿主机端口:容器内端口`。将容器内部的 `8000` 端口映射给宿主机的 `8000` 端口，启动后即可通过 `http://localhost:8000` 访问网页服务。
-* **`-v $PWD/app/data:/app/data`**：数据目录映射（Volume）。将宿主机当前目录下的 `app/data` 挂载到容器内的 `/app/data`，使得所有归档下载的模型（3MF 文件、图片等数据）持久化保存在宿主机中，**防止容器重启或重建时数据丢失**。
-* **`-v $PWD/app/logs:/app/logs`**(非必须)：日志目录映射。将运行日志和错误信息（如缺失 3MF 的记录日志）保存到宿主机，方便排查使用。
-* **`-v $PWD/app/cookie.txt:/app/cookie.txt`**(非必须)：Cookie 凭证文件映射。此文件用于 MakerWorld 下载模型所需的认证信息。挂载出来便于配置持久化（即使在网页后端自动更新或重写了它的内容，宿主机上的文件也会同步更新）。*[注意：在首次执行 docker run 之前，如果 `app/cookie.txt` 在宿主机不存在，可能会被 Docker 错误识别并创建为目录，可以先在本地执行 `touch app/cookie.txt` 创建空文件]*。
-* **`sonicming/mw-archiver:latest`**：启动使用的 Docker 镜像名称以及对应的版本标签（latest）。
+- `-d`：后台运行容器。
+- `--name mw-archiver`：为容器指定名称，便于 `docker logs`、`docker stop` 管理。
+- `-p 8000:8000`：映射容器 `8000` 端口到宿主机 `8000`。
+- `-v $PWD/app/data:/app/data`：持久化归档数据目录。
+- `-v $PWD/app/logs:/app/logs`：持久化日志目录，便于排查失败、缺失下载等问题。
+- `-v $PWD/app/config:/app/config`：持久化配置目录，保存通知配置、Cookie 配置、模型库状态配置。空目录也可自动初始化。
+- `sonicming/mw-archiver:latest`：使用的镜像及版本标签。
 
 ## Docker Compose 启动
-
 创建 `docker-compose.yml` 文件：
-
-> 注: logs和cookie.txt不是必须的，可以不挂载
 
 ```yaml
 version: '3.8'
@@ -128,54 +168,93 @@ services:
     volumes:
       - ./app/data:/app/data
       - ./app/logs:/app/logs
-      - ./app/cookie.txt:/app/cookie.txt
+      - ./app/config:/app/config
     restart: unless-stopped
 ```
 
-在同级目录下，**确保已经创建了 `app/data`、`app/logs` 目录和 `app/cookie.txt` 空文件**，然后执行以下命令将服务放置在后台启动：
+然后执行：
 
 ```bash
 docker-compose up -d
 ```
 
-
 ## 配置说明
 ### 配置文件
-一般不用修改
+一般不用手动修改，程序会自动维护。
 
-配置文件为 [app/config.json](app/config.json)：
+当前配置目录：`app/config/`
+
+主要文件：
+- [app/config/config.json](app/config/config.json)
+- [app/config/cookie.json](app/config/cookie.json)
+- [app/config/gallery_flags.json](app/config/gallery_flags.json)
+
+`config.json` 示例：
 
 ```json
 {
   "download_dir": "./data",
-  "cookie_file": "./cookie.txt",
-  "logs_dir": "./logs"
+  "cookie_file": "./config/cookie.json",
+  "logs_dir": "./logs",
+  "notifications": {
+    "telegram": {
+      "enable_push": false,
+      "bot_token": "",
+      "chat_id": "",
+      "web_base_url": "http://127.0.0.1:8000"
+    },
+    "wecom": {
+      "enable_push": false,
+      "enable_command": false
+    }
+  }
 }
 ```
 
-### 完整cookie获取
-随便打开一个模型，按f12，选择network，然后刷新页面，找到请求，复制cookie
+### 国内 / 国际平台 Cookie
+`cookie.json` 当前按平台分组：
+
+```json
+{
+  "cn": [],
+  "global": [],
+  "_meta": {
+    "rr_index": {
+      "cn": 0,
+      "global": 0
+    }
+  }
+}
+```
+
+说明：
+- `cn` 用于 `makerworld.com.cn`
+- `global` 用于 `makerworld.com`
+- 当前 README 只强调“支持国内 / 国际平台分组配置”
+- 多 Cookie 轮询能力由内部版本开关控制，默认关闭
+
+### 完整 Cookie 获取
+随便打开一个模型，按 `F12`，选择 `Network`，然后刷新页面，找到请求，复制完整 `Cookie`。
 
 ![cookie](doc/screenshot/完整cookie获取.png)
 
-
-**cookie失效问题：**
-有时候cookie并不是失效了，而是触发了验证，需要手动下载一个模型解决验证
+**Cookie 失效问题：**
+有时候 Cookie 并不是真的失效，而是触发了验证，需要先手动下载一个模型完成验证。
 
 ![cookie手动验证](doc/screenshot/cookie手动验证.png)
 
-之后尽快在控制台重新下载模型
+之后尽快在控制台重新下载模型：
+
 ![重新下载](doc/screenshot/重新下载.png)
 
 ## 常用流程
-http://127.0.0.1:8000
-1. 在 `/config` 设置 Cookie（或调用 `POST /api/cookie`）。
-2. 在 `/config` 输入模型链接执行归档（或调用 `POST /api/archive`）。
+1. 在 `/config` 设置国内 / 国际平台 Cookie 与通知配置。
+2. 在 `/config` 输入模型链接执行归档，或通过 Telegram 发送模型链接触发归档。
 3. 若同模型再次归档，系统自动执行更新。
-4. 归档历史样式升级时，点击“归档修复”中的“一键更新历史归档”或调用 `POST /api/archive/rebuild-pages`。
+4. 归档历史样式升级时，点击“其他功能”中的“一键更新历史归档”。
 5. 在 `/` 模型库查看、筛选、标记和打开本地模型页面。
 
-注: 为减少触发验证,目前只能一次归档一个模型.
+注：为减少触发验证，目前同一时间仍建议一次归档一个模型。
 
 ## API 清单
 > 详细的接口、传参示例和返回说明，请参见完整的 [API 接口文档 (doc/api.md)](doc/readme/api.md)

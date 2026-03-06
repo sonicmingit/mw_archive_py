@@ -14,8 +14,7 @@ mw_archive/
 │  ├─ server.py            # 主服务入口与 API 路由
 │  ├─ archiver.py          # 归档核心逻辑
 │  ├─ three_mf_parser.py   # 3MF 文件解析
-│  ├─ config.json           # 运行时配置
-│  ├─ cookie.txt            # Cookie 持久化文件
+│  ├─ config/              # 运行时配置目录（config.json / cookie.json / gallery_flags.json）
 │  ├─ static/              # 前端静态资源 (css/js/imgs)
 │  ├─ templates/           # HTML 模板
 │  ├─ data/                # 归档数据目录（运行时产生，不入库）
@@ -166,7 +165,7 @@ mw_archive/
 ## Git 规范
 - 提交信息使用中文，格式: `类型: 简述`
   - 类型: `feat`(新功能) / `fix`(修复) / `docs`(文档) / `style`(样式) / `refactor`(重构) / `chore`(杂项)
-- `data/`、`logs/`、`cookie.txt`、`__pycache__/`、`.venv/` 不入库
+- `data/`、`logs/`、`app/config/`、`__pycache__/`、`.venv/` 不入库
 
 ## 安全注意事项
 - `model_dir` 路径参数必须校验，禁止路径穿越
