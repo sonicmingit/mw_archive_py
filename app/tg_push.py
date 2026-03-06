@@ -110,10 +110,11 @@ class TelegramPushService:
 
     def _format_alert_text(self, alert, detail: Optional[str] = None) -> str:
         if isinstance(alert, dict):
+            icon = str(alert.get("icon") or "⚠️").strip() or "⚠️"
             title = str(alert.get("title") or "通知").strip()
             summary = str(alert.get("summary") or "").strip()
             lines = alert.get("lines") if isinstance(alert.get("lines"), list) else []
-            text_lines = [f"⚠️ {title}"]
+            text_lines = [f"{icon} {title}"]
             if summary:
                 text_lines.append(summary)
             for line in lines:

@@ -169,6 +169,68 @@
             </div>
           </div>
         </div>
+
+        <div class="form-section">
+          <h3>本地批量导入监控</h3>
+
+          <div class="info-box">
+            <i class="fas fa-folder-open"></i>
+            <div class="info-box-content">
+              <div class="info-box-title">功能说明</div>
+              <div class="info-box-text">
+                仅扫描并导入本地 `3MF` 到 `LocalModel_*`，不会与在线归档 `MW_*` 混合。<br>
+                默认监控目录为 `./watch`，适合 Docker 映射到容器外部目录。导入成功后源文件会移动到 `_imported` 子目录，失败文件会移动到 `_failed` 子目录，后续扫描会自动忽略这两个目录。
+              </div>
+            </div>
+          </div>
+
+          <div class="tg-toggle-row">
+            <span class="tg-toggle-title">启用目录监控</span>
+            <label class="tg-switch" for="localBatchEnable">
+              <input type="checkbox" id="localBatchEnable">
+              <span class="tg-slider"></span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">监控目录（每行一个）</label>
+            <textarea id="localBatchWatchDirs" class="form-textarea" rows="4" placeholder="./watch"></textarea>
+            <div class="text-muted text-small mt-sm">相对路径会按 `app/` 目录解析。</div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">扫描间隔（秒）</label>
+              <input type="number" id="localBatchInterval" class="form-input" min="30" step="30" value="300">
+            </div>
+            <div class="form-group">
+              <label class="form-label">解析并发</label>
+              <input type="number" id="localBatchWorkers" class="form-input" min="1" max="4" step="1" value="2">
+            </div>
+          </div>
+
+          <div class="tg-toggle-row">
+            <span class="tg-toggle-title">导入完成后推送汇总</span>
+            <label class="tg-switch" for="localBatchNotify">
+              <input type="checkbox" id="localBatchNotify">
+              <span class="tg-slider"></span>
+            </label>
+          </div>
+
+          <div class="text-muted text-small mt-sm" id="localBatchResolvedDirs">运行时目录: -</div>
+          <div class="text-muted text-small mt-sm" id="localBatchLastScan">最新扫描记录: -</div>
+          <div class="text-muted text-small mt-sm">最近 5 次成功记录:</div>
+          <div class="text-muted text-small mt-sm" id="localBatchRecentHistory">-</div>
+
+          <div class="table-actions mt-lg">
+            <button class="btn btn-primary" type="button" onclick="saveLocalBatchConfig()">
+              <i class="fas fa-save"></i> 保存监控配置
+            </button>
+            <button class="btn btn-secondary" type="button" onclick="runLocalBatchImport()">
+              <i class="fas fa-play"></i> 立即扫描并导入
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Tab Content: Missing -->
@@ -267,6 +329,8 @@
           <div class="manual-inline">
             <input type="file" id="manual3mfPicker" accept=".3mf" multiple>
             <button class="manual-btn" type="button" id="manualParse3mf">识别并填充</button>
+            <button class="manual-btn" type="button" id="manualBatchImportDirBtn">选择目录批量导入</button>
+            <input type="file" id="manualBatchDirPicker" accept=".3mf" multiple webkitdirectory directory style="display:none">
           </div>
           <div id="manualParsedPreview" class="manual-draft-preview hidden">
             <div class="manual-draft-head">
@@ -387,6 +451,7 @@
     function createCookieRow(platform, item = {}, index = 0) {
       const value = item.value || '';
       const status = item.status || 'active';
+      const statusText = translateCookieStatus(status);
       const lastError = item.last_error || '';
       const successCount = item.success_count || 0;
       const failureCount = item.failure_count || 0;
@@ -398,7 +463,7 @@
           <div class="cookie-row-head">
             <span class="cookie-row-title">${titleText}</span>
             <div class="cookie-row-actions">
-              <span class="cookie-status status-${status}">${status}</span>
+              <span class="cookie-status status-${status}">${statusText}</span>
               <button class="cookie-eye-btn" type="button" onclick="toggleCookieMask(this)">
                 <i class="fas fa-eye"></i>
               </button>
@@ -411,7 +476,7 @@
           <div class="cookie-row-meta">
             <span>成功 ${successCount}</span>
             <span>失败 ${failureCount}</span>
-            ${cooldownUntil ? `<span>冷却至 ${cooldownUntil}</span>` : ''}
+            ${cooldownUntil ? `<span>冷却至 ${formatDateTimeText(cooldownUntil)}</span>` : ''}
             ${lastError ? `<span class="cookie-last-error">最近错误: ${lastError}</span>` : ''}
           </div>
         </div>
@@ -511,13 +576,81 @@
       }
     }
 
+    function formatDateTimeText(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return '-';
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) return raw;
+      return date.toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function translateCookieStatus(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) return '';
+      if (normalized === 'active') return '正常';
+      if (normalized === 'cooldown') return '冷却中';
+      if (normalized === 'invalid') return '已失效';
+      return normalized;
+    }
+
+    function translateBatchResult(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) return '';
+      if (normalized === 'idle') return '无更新';
+      if (normalized === 'processed') return '已处理';
+      return normalized;
+    }
+
+    function formatDurationText(value) {
+      const totalSeconds = Math.max(Number(value || 0), 0);
+      if (!Number.isFinite(totalSeconds)) return '';
+      const seconds = Math.round(totalSeconds);
+      const minutes = Math.floor(seconds / 60);
+      const remainSeconds = seconds % 60;
+      return `${minutes}分${remainSeconds}秒`;
+    }
+
+    function translateBatchSource(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) return '';
+      if (normalized === 'watcher') return '监控目录';
+      if (normalized === 'manual') return '手动目录';
+      return normalized;
+    }
+
+    function formatBatchRecordText(record, prefix = '') {
+      const item = record && typeof record === 'object' ? record : {};
+      const scanAt = formatDateTimeText(item.scan_at || item.last_scan_at || '');
+      const resultText = translateBatchResult(item.last_result || item.result || 'processed');
+      const sourceText = translateBatchSource(item.source_label || item.last_source_label || '');
+      const processed = Number(item.processed || item.last_processed || 0);
+      const createdModels = Number(item.created_models || item.last_created_models || 0);
+      const appendedInstances = Number(item.appended_instances || item.last_appended_instances || 0);
+      const skippedDuplicates = Number(item.skipped_duplicates || item.last_skipped_duplicates || 0);
+      const failed = Number(item.failed || item.last_failed || 0);
+      const durationText = formatDurationText(item.duration_seconds || item.last_duration_seconds || 0);
+      const segments = [
+        scanAt,
+        sourceText,
+        resultText ? `结果 ${resultText}` : '',
+        `处理 ${processed}`,
+        `新增模型 ${createdModels}`,
+        `新增配置 ${appendedInstances}`,
+        `跳过 ${skippedDuplicates}`,
+        `失败 ${failed}`,
+        `耗时 ${durationText}`,
+      ].filter(Boolean);
+      return `${prefix}${segments.join('，')}`;
+    }
+
     // Config Functions
     async function loadConfig() {
       const res = await fetch('/api/config');
       const data = await res.json();
-      document.getElementById('cookieTime').textContent = 'Cookie 更新时间: ' + (data.cookie_updated_at || '-');
+      document.getElementById('cookieTime').textContent = 'Cookie 更新时间: ' + formatDateTimeText(data.cookie_updated_at);
       renderCookieGroups((data && data.cookie_store) || {});
       await loadNotifyConfig();
+      await loadLocalBatchConfig();
     }
 
     async function loadNotifyConfig() {
@@ -553,6 +686,79 @@
         const err = await res.text();
         appendLog('通知配置保存失败: ' + err);
         alert('通知配置保存失败');
+      }
+    }
+
+    async function loadLocalBatchConfig() {
+      const res = await fetch('/api/local-batch-import/config');
+      if (!res.ok) return;
+      const data = await res.json();
+      const cfg = (data && data.config) || {};
+      const runtime = (data && data.runtime) || {};
+      const state = (data && data.state) || {};
+      document.getElementById('localBatchEnable').checked = !!cfg.enabled;
+      document.getElementById('localBatchNotify').checked = !!cfg.notify_on_finish;
+      document.getElementById('localBatchInterval').value = cfg.scan_interval_seconds || 300;
+      document.getElementById('localBatchWorkers').value = cfg.max_parse_workers || 2;
+      document.getElementById('localBatchWatchDirs').value = Array.isArray(cfg.watch_dirs) && cfg.watch_dirs.length ? cfg.watch_dirs.join('\n') : './watch';
+      const runtimeDirs = Array.isArray(runtime.watch_dirs) && runtime.watch_dirs.length ? runtime.watch_dirs.join(' | ') : '-';
+      document.getElementById('localBatchResolvedDirs').textContent = '运行时目录: ' + runtimeDirs;
+      const lastScanText = state.last_scan_at
+        ? `最新扫描记录: ${formatBatchRecordText(state)}`
+        : '最新扫描记录: -';
+      document.getElementById('localBatchLastScan').textContent = lastScanText;
+      const history = Array.isArray(state.recent_success_records) ? state.recent_success_records : [];
+      document.getElementById('localBatchRecentHistory').innerHTML = history.length
+        ? history.map((item, idx) => `${idx + 1}. ${formatBatchRecordText(item)}`).join('<br>')
+        : '-';
+    }
+
+    async function saveLocalBatchConfig() {
+      const watchDirsText = (document.getElementById('localBatchWatchDirs').value || '').trim();
+      const watchDirs = watchDirsText ? watchDirsText.split(/\r?\n/).map(x => x.trim()).filter(Boolean) : ['./watch'];
+      const payload = {
+        local_batch_import: {
+          enabled: !!document.getElementById('localBatchEnable').checked,
+          notify_on_finish: !!document.getElementById('localBatchNotify').checked,
+          scan_interval_seconds: Number(document.getElementById('localBatchInterval').value || 300),
+          max_parse_workers: Number(document.getElementById('localBatchWorkers').value || 2),
+          watch_dirs: watchDirs
+        }
+      };
+      appendLog('保存本地批量导入监控配置...');
+      const res = await fetch('/api/local-batch-import/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        appendLog('本地批量导入监控配置已保存');
+        await loadLocalBatchConfig();
+        alert('本地批量导入监控配置已保存');
+      } else {
+        const err = await res.text();
+        appendLog('保存本地批量导入监控配置失败: ' + err);
+        alert('保存失败: ' + err);
+      }
+    }
+
+    async function runLocalBatchImport() {
+      if (!confirm('将按当前监控目录扫描并执行本地批量导入，是否继续？')) return;
+      appendLog('开始扫描并执行本地批量导入...');
+      const res = await fetch('/api/local-batch-import/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (res.ok) {
+        const data = await res.json();
+        appendLog(`本地批量导入完成：处理 ${data.processed}，新增模型 ${data.created_models}，新增配置 ${data.appended_instances}，跳过 ${data.skipped_duplicates}，失败 ${data.failed}`);
+        if (data.report_path) appendLog('报告文件: ' + data.report_path);
+        alert(`本地批量导入完成\n处理 ${data.processed}，新增模型 ${data.created_models}，新增配置 ${data.appended_instances}，跳过 ${data.skipped_duplicates}，失败 ${data.failed}`);
+      } else {
+        const err = await res.text();
+        appendLog('本地批量导入失败: ' + err);
+        alert('本地批量导入失败: ' + err);
       }
     }
 

@@ -2,48 +2,42 @@
 
 ![mw_archive](https://aliyun-wb-h9vflo19he.oss-cn-shanghai.aliyuncs.com/use/makerworld_archive.png)
 
-一个面向本地模型管理的工具，支持 MakerWorld 模型归档、本地 3MF 解析导入、模型库浏览与维护。
+一个面向本地模型管理的工具，支持模型归档、本地 3MF 解析导入、模型库浏览与维护。
 
 ## 当前版本
-- `v5.3`
-- 更新说明见 [doc/logs/v5.3_update_log.md](doc/logs/v5.3_update_log.md)
+- `v5.4.0`
+- 更新说明见 [doc/logs/v5.4.0_update_log.md](doc/logs/v5.4.0_update_log.md)
 - 本次重点：
-  - 新增 Telegram 推送与机器人交互；
-  - 新增国内 / 国际平台 Cookie 支持；
-  - Docker 部署配置目录统一迁移到 `app/config/`。
-  
-### v5.3 Docker 升级注意事项
-如果你是从旧版本 Docker 升级到 `v5.3`，重点注意这次配置结构已经变化：
-- 旧版常见挂载：
-  - `./app/cookie.txt:/app/cookie.txt`
-  - `./app/config.json:/app/config.json`
-- `v5.3` 推荐改为直接挂载整个配置目录：
-  - `./app/config:/app/config`
-- 新目录下的关键文件：
-  - `app/config/config.json`
-  - `app/config/cookie.json`
-  - `app/config/gallery_flags.json`
-- 升级前建议先备份：
-  - `app/data/`
-  - `app/logs/`
-  - `app/config/` 或旧的 `app/config.json`、`app/cookie.txt`
+  - 新增本地 `3MF` 批量导入与监控目录能力；
+  - 本地批量导入支持推送汇总、耗时统计、最近扫描记录与最近 5 次成功记录；
+  - 监控目录默认 `./watch`，导入后自动归档到 `_imported/` / `_failed/` 并忽略后续扫描。
 
-### Docker 升级步骤（推荐）
-1. 停止并删除旧容器。
-2. 备份宿主机上的 `app/data`、`app/logs`、`app/config`（如果没有 `app/config`，就备份旧的 `app/config.json` 和 `app/cookie.txt`）。
-3. 将挂载方式改为：
-   - `./app/data:/app/data`
-   - `./app/logs:/app/logs`
-   - `./app/config:/app/config`
-4. 启动新版本容器。
-5. 首次启动后检查 `app/config/` 目录：如果为空，程序会自动生成默认配置文件；如果存在旧配置，程序会自动迁移到新目录。
-6. 打开 `/config` 页面确认：
-   - Cookie 是否正常显示；
-   - Telegram 配置是否保留；
-   - 国内 / 国际平台 Cookie 是否分组正常。
+### v5.4.0 配置与升级说明
+如果你是从旧版本升级到 `v5.4.0`，这次重点增加了本地批量导入配置，建议同时检查 `app/config/` 和 `app/watch/`：
+- 推荐继续挂载：
+  - `./app/data:/app/data`
+  - `./app/logs:/app/logs`
+  - `./app/config:/app/config`
+- 推荐新增挂载：
+  - `./app/watch:/app/watch`
+- 新增配置能力：
+  - `app/config/config.json` 中新增 `local_batch_import`
+  - 默认监控目录为 `./watch`
+  - 成功 / 重复文件自动移动到 `./watch/_imported/`
+  - 失败文件自动移动到 `./watch/_failed/`
+- 页面入口：
+  - `/config` 页面可配置监控目录、扫描间隔、解析并发、推送开关
+  - 手动导入弹窗新增“选择目录批量导入”
+
+### v5.4.0 大批量导入建议
+- 小批量文件可以直接使用“选择目录批量导入”。
+- 大批量文件建议优先把 `3MF` 先放入 `watch` 目录，再在页面点击“立即扫描并导入”。
+- 这样可以避免浏览器批量上传耗时过长，也更适合 Docker 映射目录场景。
 
 ## 核心能力
 - 支持本地上传 3MF 后自动解析并入库，快速建立个人模型库
+- 支持本地 `3MF` 目录批量导入，自动识别同模型不同配置并聚合到同一个 `LocalModel_*`
+- 支持监控目录定时扫描，自动移动已处理文件并输出批量导入汇总
 - 支持模型库浏览、搜索、筛选与状态标记（如收藏、已打印）
 - 支持手动导入本地模型与附件管理，便于整理历史文件
 - 支持缺失文件记录与重试机制，降低导入失败后的手工处理成本
@@ -63,11 +57,13 @@ mw_archive/
 │  ├─ config/
 │  │  ├─ config.json
 │  │  ├─ cookie.json
-│  │  └─ gallery_flags.json
+│  │  ├─ gallery_flags.json
+│  │  └─ local_batch_import_state.json
 │  ├─ data/
 │  ├─ logs/
 │  ├─ static/
-│  └─ templates/
+│  ├─ templates/
+│  └─ watch/
 ├─ plugin/
 │  ├─ chrome_extension/
 │  │  ├─ mw_quick_archive_ext/
@@ -112,10 +108,12 @@ python server.py
 - `app/data`
 - `app/logs`
 - `app/config`
+- `app/watch`
 
 注意：
 - `app/config` 现在是推荐挂载项；
 - 即使这个目录是空的，容器首次启动后也会自动生成默认配置文件；
+- `app/watch` 用于本地批量导入监控目录，推荐单独挂载到宿主机；
 
 ### 直接拉取
 ```bash
@@ -126,6 +124,7 @@ python server.py
   -v $PWD/app/data:/app/data \
   -v $PWD/app/logs:/app/logs \
   -v $PWD/app/config:/app/config \
+  -v $PWD/app/watch:/app/watch \
   sonicming/mw-archiver:latest
 ```
 
@@ -141,6 +140,7 @@ docker run -d \
   -v $PWD/app/data:/app/data \
   -v $PWD/app/logs:/app/logs \
   -v $PWD/app/config:/app/config \
+  -v $PWD/app/watch:/app/watch \
   mw-archiver
 ```
 
@@ -151,6 +151,7 @@ docker run -d \
 - `-v $PWD/app/data:/app/data`：持久化归档数据目录。
 - `-v $PWD/app/logs:/app/logs`：持久化日志目录，便于排查失败、缺失下载等问题。
 - `-v $PWD/app/config:/app/config`：持久化配置目录，保存通知配置、Cookie 配置、模型库状态配置。空目录也可自动初始化。
+- `-v $PWD/app/watch:/app/watch`：持久化本地批量导入监控目录，适合宿主机直接投放 `3MF` 文件。
 - `sonicming/mw-archiver:latest`：使用的镜像及版本标签。
 
 ## Docker Compose 启动
@@ -169,6 +170,7 @@ services:
       - ./app/data:/app/data
       - ./app/logs:/app/logs
       - ./app/config:/app/config
+      - ./app/watch:/app/watch
     restart: unless-stopped
 ```
 
@@ -188,6 +190,7 @@ docker-compose up -d
 - [app/config/config.json](app/config/config.json)
 - [app/config/cookie.json](app/config/cookie.json)
 - [app/config/gallery_flags.json](app/config/gallery_flags.json)
+- [app/config/local_batch_import_state.json](app/config/local_batch_import_state.json)
 
 `config.json` 示例：
 
@@ -196,6 +199,16 @@ docker-compose up -d
   "download_dir": "./data",
   "cookie_file": "./config/cookie.json",
   "logs_dir": "./logs",
+  "local_batch_import": {
+    "enabled": false,
+    "watch_dirs": ["./watch"],
+    "processed_dir_name": "_imported",
+    "failed_dir_name": "_failed",
+    "scan_interval_seconds": 300,
+    "max_parse_workers": 2,
+    "notify_on_finish": true,
+    "duplicate_policy": "skip"
+  },
   "notifications": {
     "telegram": {
       "enable_push": false,
@@ -210,6 +223,26 @@ docker-compose up -d
   }
 }
 ```
+
+### 本地批量导入
+- 监控目录默认是 `app/watch/`
+- 只处理本地导入模型，生成或更新 `LocalModel_*`
+- 不会和在线归档 `MW_*` 混合
+- 导入成功或判重跳过后，源文件会移动到 `watch/_imported/`
+- 导入失败后，源文件会移动到 `watch/_failed/`
+- 移动完成后会自动清理原路径上的空文件夹
+- 配置页会显示：
+  - 最新扫描记录
+  - 最近 5 次成功记录
+  - 每次处理的耗时、处理数量、成功 / 跳过 / 失败统计
+- 推送标题区分：
+  - 监控目录导入完成
+  - 手动目录导入完成
+
+推荐使用方式：
+- 少量文件：手动导入弹窗里直接“选择目录批量导入”
+- 大量文件：先把文件放进 `watch` 目录，再到配置页手动点击“立即扫描并导入”
+- 如果是 Docker 部署，推荐把宿主机目录映射到 `app/watch`
 
 ### 国内 / 国际平台 Cookie
 `cookie.json` 当前按平台分组：
@@ -244,9 +277,12 @@ docker-compose up -d
 ## 常用流程
 1. 在 `/config` 设置国内 / 国际平台 Cookie 与通知配置。
 2. 在 `配置/模型归档` 页面输入模型链接执行归档，或通过 Telegram 发送模型链接触发归档。
-3. 若同模型再次归档，系统自动执行更新。
-4. 归档历史样式升级时，点击“其他功能”中的“一键更新历史归档”。
-5. 在 `/` 模型库查看、筛选、标记和打开本地模型页面。
+3. 如果要批量导入本地文件：
+   - 少量文件可在手动导入弹窗中选择目录直接导入
+   - 大量文件建议先放到 `watch` 目录，再到配置页点击“立即扫描并导入”
+4. 若同模型再次归档，系统自动执行更新。
+5. 归档历史样式升级时，点击“其他功能”中的“一键更新历史归档”。
+6. 在 `/` 模型库查看、筛选、标记和打开本地模型页面。
 
 注：为减少触发验证，目前同一时间仍建议一次归档一个模型。
 

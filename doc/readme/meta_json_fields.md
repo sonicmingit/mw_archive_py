@@ -59,6 +59,7 @@
 | `update_time` | string(ISO) | 常有（老数据可能缺失） | 常有 | 最近更新时间 | `/api/v2/models/{dir}/meta` 会补齐 |
 | `generatedAt` | string | 常有 | 常有 | 生成时工作目录信息（调试留存） | 主要为留存 |
 | `note` | string | 常有 | 常有 | 说明性文本 | 留存 |
+| `importMeta` | object | 无 | 批量导入模型可有 | 本地批量导入标记，仅用于 `LocalModel_*` 聚合与追踪 | `app/batch_import_service.py` |
 
 ## 4. 嵌套字段说明
 
@@ -158,6 +159,7 @@
 - 内容：`summary`, `summaryTranslated`
 - 下载相关：`name`, `fileName`, `sourceFileName(本地导入常见)`, `downloadUrl`, `apiUrl`
 - 媒体：`plates[]`, `pictures[]`, `instanceFilaments[]`
+- 本地批量导入附加：`importMeta`
 
 
 ### `instances[] 中的名称`
@@ -179,6 +181,47 @@
 
 
 title = 展示名，name = 来源原名，fileName = 本地真实文件名（实际应以它为准）。
+
+### `importMeta`
+
+仅本地批量导入写入，在线归档 `MW_*` 不使用该结构。
+
+顶层示例：
+
+```json
+"importMeta": {
+  "modelKey": "design_model:123456",
+  "keySource": "DesignModelId"
+}
+```
+
+实例示例：
+
+```json
+"importMeta": {
+  "configFingerprint": "design_profile:654321",
+  "fingerprintSource": "DesignProfileId",
+  "fileHash": "sha256...",
+  "designModelId": "123456",
+  "designProfileId": "654321"
+}
+```
+
+字段说明：
+- `modelKey`
+  - 仅用于本地批量导入内部聚合
+  - 用来识别“同一个模型”
+- `keySource`
+  - `modelKey` 来源说明
+  - 可能来自 `DesignModelId` 或标题 / 作者回退规则
+- `configFingerprint`
+  - 仅用于识别“同模型下的不同配置”
+- `fingerprintSource`
+  - `configFingerprint` 来源说明
+- `fileHash`
+  - 本地文件哈希，作为回退去重和问题追踪辅助信息
+- `designModelId` / `designProfileId`
+  - 原始 `3MF` 解析出的设计模型 / 配置标识
 
 ### `plates[]`
 
@@ -207,6 +250,9 @@ title = 展示名，name = 来源原名，fileName = 本地真实文件名（实
 - `source`：
   - 归档 `MW_*`：通常没有该字段
   - 本地导入：有，典型值 `LocalModel` / `others`
+- `importMeta`：
+  - 归档：没有
+  - 本地批量导入：可能有，仅用于批量导入聚合与追踪
 - `id`：
   - 归档：MakerWorld 数值 ID
   - 本地导入：通常 `null`
@@ -221,6 +267,7 @@ title = 展示名，name = 来源原名，fileName = 本地真实文件名（实
 
 - 归档实例常见：`profileId`
 - 本地导入实例常见：`sourceFileName`
+- 本地批量导入实例可额外包含 `importMeta`
 - 两者都建议保留 `fileName`，确保下载与文件定位稳定
 
 ## 6. 兼容与回退规则（重要）
@@ -257,6 +304,7 @@ title = 展示名，name = 来源原名，fileName = 本地真实文件名（实
 - 手动导入生成：`app/server.py::api_manual_import(...)`
 - 附件/打印索引同步：`app/server.py::sync_offline_files_to_meta(...)`
 - 实例导入更新：`app/server.py::/api/models/{model_dir}/instances/import-3mf`
+- 本地批量导入写入：`app/batch_import_service.py`
 - 历史修复脚本：
   - `scripts/fix_collect_date.py`
   - `scripts/rebuild_index_from_meta.py`

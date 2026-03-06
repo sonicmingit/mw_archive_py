@@ -29,6 +29,8 @@
   const summaryHtmlInput = document.getElementById('manualSummaryHtml');
   const richButtons = modal.querySelectorAll('[data-rich-cmd]');
   const parseInstancesBtn = document.getElementById('manualParseInstances');
+  const batchImportDirBtn = document.getElementById('manualBatchImportDirBtn');
+  const batchDirPicker = document.getElementById('manualBatchDirPicker');
 
   let parsedDraft = null;
   const tempDraftSessionIds = new Set();
@@ -519,12 +521,61 @@
     }
   }
 
+  async function runBatchImportFromDirectory() {
+    if (!batchDirPicker || !batchDirPicker.files || !batchDirPicker.files.length) {
+      setMsg('请先选择包含 3MF 的目录', true);
+      return;
+    }
+
+    const files = Array.from(batchDirPicker.files).filter((file) => /\.3mf$/i.test(file.name || ''));
+    if (!files.length) {
+      setMsg('目录中未检测到 3MF 文件', true);
+      return;
+    }
+
+    const fd = new FormData();
+    files.forEach((file) => fd.append('files', file, file.webkitRelativePath || file.name));
+    fd.append('force', 'true');
+
+    const oldText = batchImportDirBtn ? batchImportDirBtn.textContent : '';
+    if (batchImportDirBtn) {
+      batchImportDirBtn.disabled = true;
+      batchImportDirBtn.textContent = '导入中...';
+    }
+    setMsg(`开始批量导入目录，共 ${files.length} 个 3MF ...`);
+    try {
+      const res = await fetch('/api/local-batch-import/run-upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || '目录导入失败');
+      }
+      const data = await res.json();
+      const summary = `目录导入完成：处理 ${data.processed || 0}，新增模型 ${data.created_models || 0}，新增配置 ${data.appended_instances || 0}，跳过 ${data.skipped_duplicates || 0}，失败 ${data.failed || 0}`;
+      setMsg(summary, false, true);
+      batchDirPicker.value = '';
+      alert(summary);
+      window.location.reload();
+    } catch (err) {
+      setMsg(`目录导入失败：${err.message || err}`, true);
+    } finally {
+      if (batchImportDirBtn) {
+        batchImportDirBtn.disabled = false;
+        batchImportDirBtn.textContent = oldText || '选择目录批量导入';
+      }
+    }
+  }
+
   if (instanceAddBtn && instancePicker) {
     instanceAddBtn.addEventListener('click', () => instancePicker.click());
     instancePicker.addEventListener('change', () => {
       addInstanceFiles(instancePicker.files);
       instancePicker.value = '';
     });
+  }
+
+  if (batchImportDirBtn && batchDirPicker) {
+    batchImportDirBtn.addEventListener('click', () => batchDirPicker.click());
+    batchDirPicker.addEventListener('change', runBatchImportFromDirectory);
   }
 
   if (parse3mfBtn) parse3mfBtn.addEventListener('click', parse3mfFiles);

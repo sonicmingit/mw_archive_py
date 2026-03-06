@@ -1,6 +1,6 @@
 # MakerWorld Archive - 后端 API 接口文档
 
-本文档描述了 MakerWorld Archive 后端服务的主要 API 接口，包括模型归档、国内 / 国际平台 Cookie 配置、通知配置、画廊数据获取、历史归档维护、缺失文件重试以及手动导入等能力。
+本文档描述了 MakerWorld Archive 后端服务的主要 API 接口，包括模型归档、国内 / 国际平台 Cookie 配置、通知配置、画廊数据获取、历史归档维护、缺失文件重试、手动导入以及本地批量导入等能力。
 
 ---
 
@@ -11,6 +11,9 @@
    - 1.3 [国内 / 国际平台 Cookie 配置](#13-国内--国际平台-cookie-配置)
    - 1.4 [通知配置（Telegram）](#14-通知配置telegram)
    - 1.5 [获取运行配置](#15-获取运行配置)
+   - 1.6 [本地批量导入配置](#16-本地批量导入配置)
+   - 1.7 [本地批量导入扫描与执行](#17-本地批量导入扫描与执行)
+   - 1.8 [本地目录上传批量导入](#18-本地目录上传批量导入)
 2. [画廊及展示层 API](#2-画廊及展示层-api)
    - 2.1 [获取已归档模型列表](#21-获取已归档模型列表)
    - 2.2 [获取画廊标记状态](#22-获取画廊标记状态)
@@ -210,6 +213,95 @@ Telegram 命令说明：
 说明：
 - 配置文件位于 `app/config/config.json`。
 - 接口返回的是当前生效配置，运行时会自动解析为绝对路径给程序使用。
+
+### 1.6 本地批量导入配置
+用于管理本地 `3MF` 批量导入监控配置。
+
+- **读取 URL:** `/api/local-batch-import/config` (Method: `GET`)
+- **保存 URL:** `/api/local-batch-import/config` (Method: `POST`)
+- **Content-Type:** `application/json`
+
+**POST 请求参数 (Body)：**
+```json
+{
+  "local_batch_import": {
+    "enabled": false,
+    "watch_dirs": ["./watch"],
+    "processed_dir_name": "_imported",
+    "failed_dir_name": "_failed",
+    "scan_interval_seconds": 300,
+    "max_parse_workers": 2,
+    "notify_on_finish": true,
+    "duplicate_policy": "skip"
+  }
+}
+```
+
+说明：
+- 仅处理本地导入模型，目标目录固定为 `LocalModel_*`
+- 不会与在线归档 `MW_*` 模型混合
+- `watch_dirs` 默认为 `./watch`，适合 Docker 挂载
+- `enabled=false` 时不会启动 watcher 线程
+- 扫描时会忽略 `_imported` 和 `_failed` 目录
+
+**GET 响应补充说明：**
+- `config`：原始配置值
+- `runtime`：运行时展开后的绝对路径配置
+- `state`：最近扫描状态，包含：
+  - `last_scan_at`
+  - `last_result`
+  - `last_duration_seconds`
+  - `last_source_label`
+  - `recent_success_records`
+
+### 1.7 本地批量导入扫描与执行
+用于手动扫描监控目录中的 `3MF`，并触发一次批量导入。
+
+- **扫描 URL:** `/api/local-batch-import/scan` (Method: `POST`)
+- **执行 URL:** `/api/local-batch-import/run` (Method: `POST`)
+- **Content-Type:** `application/json`
+
+**请求参数 (Body，可为空)：**
+```json
+{
+  "paths": [],
+  "force": false,
+  "source_label": "watcher"
+}
+```
+
+说明：
+- `paths` 可选，用于传入指定文件路径列表
+- `force=true` 时忽略状态缓存，强制重新扫描/导入
+- `source_label` 用于区分推送来源，监控目录建议传 `watcher`
+- 执行接口会输出结构化报告，并将报告写入 `app/logs/batch_import/`
+- 如果本次扫描无更新：
+  - 不生成报告文件
+  - 不发汇总推送
+  - 只更新最近扫描状态
+- 导入完成后：
+  - 成功 / 重复文件移动到 `_imported/`
+  - 失败文件移动到 `_failed/`
+  - 原路径空文件夹会自动清理
+
+### 1.8 本地目录上传批量导入
+用于手动导入弹窗中“选择目录批量导入”，由浏览器上传目录内文件后执行一次批量导入。
+
+- **URL:** `/api/local-batch-import/run-upload`
+- **Method:** `POST`
+- **Content-Type:** `multipart/form-data`
+
+**请求字段：**
+| 字段名称 | 类型 | 必填 | 说明 |
+|----------|------|------|------|
+| files | file[] | 是 | 目录内上传的文件列表，仅处理 `.3mf` |
+| force | string | 否 | 是否强制重新处理，默认 `true` |
+
+说明：
+- 该接口来源标记固定为 `manual`
+- 仅在服务端临时目录处理上传文件，不会移动用户本地原始目录中的文件
+- 适合少量或临时批量导入
+- 大批量导入仍推荐优先使用 `watch` 目录 + `/api/local-batch-import/run`
 
 ---
 

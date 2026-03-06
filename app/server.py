@@ -34,6 +34,21 @@ from three_mf_parser import (
     build_draft_payload,
     parse_3mf_to_session,
 )
+from batch_import_service import (
+    build_runtime_batch_import_config,
+    load_state as load_batch_import_state,
+    normalize_batch_import_config,
+    run_batch_import,
+    scan_batch_import,
+)
+from batch_import_watcher import LocalBatchImportWatcher
+from local_model_utils import (
+    build_local_model_dir as shared_build_local_model_dir,
+    ensure_manual_counter_file as shared_ensure_manual_counter_file,
+    manual_counter_path as shared_manual_counter_path,
+    read_manual_counter as shared_read_manual_counter,
+    write_manual_counter as shared_write_manual_counter,
+)
 from tg_push import TelegramPushService, extract_makerworld_model_url
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -53,6 +68,16 @@ DEFAULT_CONFIG = {
     "download_dir": "./data",
     "cookie_file": "./config/cookie.json",
     "logs_dir": "./logs",
+    "local_batch_import": {
+        "enabled": False,
+        "watch_dirs": ["./watch"],
+        "processed_dir_name": "_imported",
+        "failed_dir_name": "_failed",
+        "scan_interval_seconds": 300,
+        "max_parse_workers": 2,
+        "notify_on_finish": True,
+        "duplicate_policy": "skip",
+    },
     "notifications": {
         "telegram": {
             "enable_push": False,
@@ -67,8 +92,6 @@ DEFAULT_CONFIG = {
         },
     },
 }
-MANUAL_COUNTER_LOCK = threading.Lock()
-MANUAL_COUNTER_FILE = "_manual_import_counter.json"
 ARCHIVE_LOCK = threading.Lock()
 DEFAULT_GALLERY_FLAGS = {
     "favorites": [],
@@ -817,62 +840,32 @@ def make_summary_payload(text: str, summary_files: List[str], html_content: str 
 
 def manual_counter_path(cfg: Optional[dict] = None) -> Path:
     cfg_now = cfg if isinstance(cfg, dict) else CFG
-    root = Path(cfg_now["download_dir"]).resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    return root / MANUAL_COUNTER_FILE
+    return shared_manual_counter_path(cfg_now["download_dir"])
 
 
 def read_manual_counter(cfg: Optional[dict] = None) -> int:
-    path = manual_counter_path(cfg)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return 0
-    try:
-        if isinstance(data, dict):
-            value = int(data.get("counter") or 0)
-        else:
-            value = int(data or 0)
-    except Exception:
-        return 0
-    return max(value, 0)
+    cfg_now = cfg if isinstance(cfg, dict) else CFG
+    return shared_read_manual_counter(cfg_now["download_dir"])
 
 
 def write_manual_counter(counter: int, cfg: Optional[dict] = None):
-    path = manual_counter_path(cfg)
-    payload = {
-        "counter": max(int(counter), 0),
-        "updated_at": datetime.now().isoformat(),
-    }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    cfg_now = cfg if isinstance(cfg, dict) else CFG
+    shared_write_manual_counter(cfg_now["download_dir"], counter)
 
 
 def ensure_manual_counter_file(cfg: Optional[dict] = None):
-    path = manual_counter_path(cfg)
-    if path.exists():
-        return
-    write_manual_counter(0, cfg)
+    cfg_now = cfg if isinstance(cfg, dict) else CFG
+    shared_ensure_manual_counter_file(cfg_now["download_dir"])
 
 
 def build_local_model_dir(title: str) -> tuple[str, Path]:
-    safe_title = sanitize_filename(title).strip() or "model"
-    with MANUAL_COUNTER_LOCK:
-        cfg_now = load_config()
-        root = Path(cfg_now["download_dir"]).resolve()
-        counter = read_manual_counter(cfg_now)
-
-        while True:
-            counter += 1
-            base_name = f"LocalModel_{counter:06d}_{safe_title}"
-            candidate = root / base_name
-            if candidate.exists():
-                continue
-            write_manual_counter(counter, cfg_now)
-            try:
-                CFG.update(cfg_now)
-            except Exception:
-                pass
-            return base_name, candidate
+    cfg_now = load_config()
+    base_name, candidate = shared_build_local_model_dir(cfg_now["download_dir"], title)
+    try:
+        CFG.update(cfg_now)
+    except Exception:
+        pass
+    return base_name, candidate
 
 
 # ---------- 配置与持久化 ----------
@@ -1342,6 +1335,7 @@ def build_runtime_config(raw_cfg: dict) -> dict:
     cfg["download_dir"] = str((BASE_DIR / raw_cfg.get("download_dir", "data")).resolve())
     cfg["cookie_file"] = str((BASE_DIR / raw_cfg.get("cookie_file", "./config/cookie.json")).resolve())
     cfg["logs_dir"] = str((BASE_DIR / raw_cfg.get("logs_dir", "logs")).resolve())
+    cfg["local_batch_import"] = build_runtime_batch_import_config(raw_cfg.get("local_batch_import"))
     Path(cfg["download_dir"]).mkdir(parents=True, exist_ok=True)
     Path(cfg["logs_dir"]).mkdir(parents=True, exist_ok=True)
     Path(cfg["cookie_file"]).parent.mkdir(parents=True, exist_ok=True)
@@ -2093,6 +2087,27 @@ NOTIFIER = NotificationDispatcher(logger)
 NOTIFIER.register("telegram", TG_SERVICE)
 
 
+def handle_local_batch_import_report(report: dict):
+    cfg_now = CFG if isinstance(CFG, dict) else load_config()
+    local_cfg = cfg_now.get("local_batch_import") if isinstance(cfg_now.get("local_batch_import"), dict) else {}
+    if not local_cfg.get("notify_on_finish"):
+        return
+    processed = int(report.get("processed") or 0)
+    if processed <= 0:
+        return
+    payload = report.get("notify_payload") if isinstance(report.get("notify_payload"), dict) else {}
+    if payload:
+        NOTIFIER.notify_alert(payload)
+
+
+LOCAL_BATCH_WATCHER = LocalBatchImportWatcher(
+    cfg_getter=lambda: CFG,
+    runner=lambda cfg: run_batch_import(cfg, logger=logger, source_label="watcher"),
+    logger=logger,
+    on_report=handle_local_batch_import_report,
+)
+
+
 def build_archive_notify_payload(result: dict, final_dir: Path) -> dict:
     base_url = str(get_telegram_runtime_cfg().get("web_base_url") or "http://127.0.0.1:8000").rstrip("/")
     payload = {
@@ -2159,17 +2174,22 @@ def _tg_archive_callback(url: str) -> dict:
 TG_SERVICE.set_archive_handler(_tg_archive_callback)
 
 
-def sync_telegram_service_state():
+def sync_runtime_services():
     NOTIFIER.start()
+    if LOCAL_BATCH_WATCHER.should_run():
+        LOCAL_BATCH_WATCHER.start()
+    else:
+        LOCAL_BATCH_WATCHER.stop()
 
 
 @app.on_event("startup")
 async def startup_events():
-    sync_telegram_service_state()
+    sync_runtime_services()
 
 
 @app.on_event("shutdown")
 async def shutdown_events():
+    LOCAL_BATCH_WATCHER.stop()
     NOTIFIER.stop()
 
 
@@ -2199,6 +2219,7 @@ async def api_config():
     cookie_time = cookie_path.stat().st_mtime if cookie_path.exists() else None
     cookie_store = load_cookie_store(cfg)
     tg = get_telegram_runtime_cfg()
+    local_batch = cfg.get("local_batch_import") if isinstance(cfg.get("local_batch_import"), dict) else {}
     return {
         "download_dir": cfg["download_dir"],
         "logs_dir": cfg["logs_dir"],
@@ -2211,6 +2232,14 @@ async def api_config():
         },
         "manual_local_model_counter": read_manual_counter(cfg),
         "cookie_updated_at": datetime.fromtimestamp(cookie_time).isoformat() if cookie_time else None,
+        "local_batch_import": {
+            "enabled": bool(local_batch.get("enabled", False)),
+            "watch_dirs": local_batch.get("watch_dirs") or [],
+            "processed_dir_name": str(local_batch.get("processed_dir_name") or "_imported"),
+            "failed_dir_name": str(local_batch.get("failed_dir_name") or "_failed"),
+            "scan_interval_seconds": int(local_batch.get("scan_interval_seconds") or 300),
+            "max_parse_workers": int(local_batch.get("max_parse_workers") or 2),
+        },
         "notify": {
             "telegram": {
                 "enable_push": tg["enable_push"],
@@ -2246,7 +2275,7 @@ async def api_save_notify_config(body: dict):
 
     # 持久化后刷新运行时配置
     CFG.update(build_runtime_config(raw_cfg))
-    sync_telegram_service_state()
+    sync_runtime_services()
     return {"status": "ok", "telegram": get_telegram_runtime_cfg()}
 
 
@@ -2256,6 +2285,108 @@ async def api_notify_test():
     if result.get("status") != "ok":
         raise HTTPException(400, result.get("message") or "测试连接失败")
     return result
+
+
+@app.get("/api/local-batch-import/config")
+async def api_get_local_batch_import_config():
+    raw_cfg = load_raw_config()
+    runtime_cfg = load_config()
+    batch_state = load_batch_import_state()
+    return {
+        "config": normalize_batch_import_config(raw_cfg.get("local_batch_import")),
+        "runtime": runtime_cfg.get("local_batch_import") or {},
+        "state": batch_state.get("meta") if isinstance(batch_state.get("meta"), dict) else {},
+    }
+
+
+@app.post("/api/local-batch-import/config")
+async def api_save_local_batch_import_config(body: dict):
+    payload = body or {}
+    incoming = payload.get("local_batch_import") if isinstance(payload.get("local_batch_import"), dict) else payload
+    local_cfg = normalize_batch_import_config(incoming)
+
+    raw_cfg = load_raw_config()
+    raw_cfg["local_batch_import"] = local_cfg
+    save_raw_config(raw_cfg)
+
+    CFG.update(build_runtime_config(raw_cfg))
+    sync_runtime_services()
+    return {
+        "status": "ok",
+        "config": local_cfg,
+        "runtime": CFG.get("local_batch_import") or {},
+    }
+
+
+@app.post("/api/local-batch-import/scan")
+async def api_local_batch_import_scan(body: dict):
+    payload = body or {}
+    paths = payload.get("paths") if isinstance(payload.get("paths"), list) else None
+    force = bool(payload.get("force", False))
+    cfg_now = load_config()
+    return scan_batch_import(cfg_now, explicit_paths=paths, force=force)
+
+
+@app.post("/api/local-batch-import/run")
+async def api_local_batch_import_run(body: dict):
+    payload = body or {}
+    paths = payload.get("paths") if isinstance(payload.get("paths"), list) else None
+    force = bool(payload.get("force", False))
+    cfg_now = load_config()
+    source_label = str(payload.get("source_label") or "watcher").strip().lower() or "watcher"
+    report = run_batch_import(cfg_now, explicit_paths=paths, force=force, logger=logger, source_label=source_label)
+    handle_local_batch_import_report(report)
+    return report
+
+
+@app.post("/api/local-batch-import/run-upload")
+async def api_local_batch_import_run_upload(
+    files: List[UploadFile] = File(...),
+    force: str = Form("true"),
+):
+    file_list = [f for f in (files or []) if f and f.filename]
+    if not file_list:
+        raise HTTPException(400, "请至少上传一个文件")
+
+    force_flag = str(force or "").strip().lower() in {"1", "true", "yes", "on"}
+    session_dir = TMP_DIR / "batch_import_uploads" / uuid.uuid4().hex
+    session_dir.mkdir(parents=True, exist_ok=True)
+    staged_paths: List[str] = []
+    skipped_files: List[str] = []
+
+    try:
+        for idx, upload in enumerate(file_list, start=1):
+            raw_name = str(upload.filename or "").strip()
+            rel_path = raw_name.replace("\\", "/").lstrip("/")
+            if Path(rel_path).suffix.lower() != ".3mf":
+                skipped_files.append(raw_name)
+                continue
+            safe_name = sanitize_filename(Path(rel_path).name) or f"upload_{idx}.3mf"
+            staged = session_dir / f"{idx:04d}_{safe_name}"
+            data = await upload.read()
+            if not data:
+                skipped_files.append(raw_name)
+                continue
+            staged.write_bytes(data)
+            staged_paths.append(str(staged))
+
+        if not staged_paths:
+            raise HTTPException(400, "未识别到有效的 3MF 文件")
+
+        cfg_now = load_config()
+        report = run_batch_import(
+            cfg_now,
+            explicit_paths=staged_paths,
+            force=force_flag,
+            logger=logger,
+            source_label="manual",
+        )
+        if skipped_files:
+            report["skipped_upload_files"] = skipped_files
+        handle_local_batch_import_report(report)
+        return report
+    finally:
+        shutil.rmtree(session_dir, ignore_errors=True)
 
 
 @app.post("/api/cookie")

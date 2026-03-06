@@ -54,6 +54,7 @@ cookie.txt
 !config.json
 app/config.json
 app/config/*.json
+watch/
 
 
 # Temporary files

@@ -66,6 +66,13 @@
 
 ### 历史记录
 
+#### 2026-03-06 23:40
+- 版本号：`v5.4.0`
+- 更新说明链接：[`doc/logs/v5.4.0_update_log.md`](./v5.4.0_update_log.md)
+- 本次重点：新增本地 3MF 批量导入与监控目录；新增最近扫描记录与最近 5 次成功记录；推荐大批量导入优先使用 `watch` 目录后手动扫描。
+- 同步人：AI（Codex）
+- 备注：同步根 `README.md` 当前版本区块，并补充 `watch` 目录挂载与批量导入建议。
+
 #### 2026-03-06 11:35
 - 版本号：`v5.3`
 - 更新说明链接：[`doc/logs/v5.3_update_log.md`](./v5.3_update_log.md)
@@ -96,6 +103,7 @@
 
 ## 版本日志索引
 
+- [`v5.4.0_update_log.md`](./v5.4.0_update_log.md)
 - [`v5.3_update_log.md`](./v5.3_update_log.md)
 - [`v5.2.3_update_log.md`](./v5.2.3_update_log.md)
 - [`v5.2.2_update_log.md`](./v5.2.2_update_log.md)

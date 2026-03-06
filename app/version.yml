@@ -1,4 +1,4 @@
-project_version: 5.3
+project_version: 5.4.0
 tampermonkey_version: 1.0.1
 chrome_extension_version: 1.0.0
 multi_cookie_enabled: false
