@@ -96,6 +96,7 @@ ARCHIVE_LOCK = threading.Lock()
 DEFAULT_GALLERY_FLAGS = {
     "favorites": [],
     "printed": [],
+    "folders": [],
 }
 DEFAULT_COOKIE_STORE = {
     "cn": [],
@@ -1434,6 +1435,68 @@ def save_raw_config(raw_cfg: dict):
     CONFIG_PATH.write_text(json.dumps(raw_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def normalize_gallery_folder(folder: dict) -> Optional[dict]:
+    if not isinstance(folder, dict):
+        return None
+    name = str(folder.get("name") or "").strip()
+    if not name:
+        return None
+    folder_id = str(folder.get("id") or "").strip() or uuid.uuid4().hex
+    description = str(folder.get("description") or "").strip()
+    raw_dirs = folder.get("modelDirs")
+    model_dirs = []
+    if isinstance(raw_dirs, list):
+        for item in raw_dirs:
+            value = str(item or "").strip()
+            if value and value not in model_dirs:
+                model_dirs.append(value)
+    created_at = str(folder.get("createdAt") or "").strip() or now_iso()
+    updated_at = str(folder.get("updatedAt") or "").strip() or now_iso()
+    return {
+        "id": folder_id,
+        "name": name,
+        "description": description,
+        "modelDirs": model_dirs,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }
+
+
+def normalize_gallery_flags_data(data: dict) -> dict:
+    payload = data if isinstance(data, dict) else {}
+    favorites = []
+    for item in payload.get("favorites") or []:
+        value = str(item or "").strip()
+        if value and value not in favorites:
+            favorites.append(value)
+    printed = []
+    for item in payload.get("printed") or []:
+        value = str(item or "").strip()
+        if value and value not in printed:
+            printed.append(value)
+    folders = []
+    seen_folder_ids = set()
+    seen_folder_names = set()
+    raw_folders = payload.get("folders") if isinstance(payload.get("folders"), list) else []
+    for folder in raw_folders:
+        normalized = normalize_gallery_folder(folder)
+        if not normalized:
+            continue
+        if normalized["id"] in seen_folder_ids:
+            continue
+        lowered_name = normalized["name"].lower()
+        if lowered_name in seen_folder_names:
+            continue
+        seen_folder_ids.add(normalized["id"])
+        seen_folder_names.add(lowered_name)
+        folders.append(normalized)
+    return {
+        "favorites": favorites,
+        "printed": printed,
+        "folders": folders,
+    }
+
+
 def load_gallery_flags() -> dict:
     ensure_config_dir()
     changed = False
@@ -1452,9 +1515,7 @@ def load_gallery_flags() -> dict:
     else:
         data = deepcopy(DEFAULT_GALLERY_FLAGS)
         changed = True
-    favorites = data.get("favorites") if isinstance(data.get("favorites"), list) else []
-    printed = data.get("printed") if isinstance(data.get("printed"), list) else []
-    normalized = {"favorites": favorites, "printed": printed}
+    normalized = normalize_gallery_flags_data(data)
     if changed or normalized != data:
         GALLERY_FLAGS_PATH.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
     return normalized
@@ -1462,11 +1523,25 @@ def load_gallery_flags() -> dict:
 
 def save_gallery_flags(flags: dict):
     ensure_config_dir()
-    data = {
-        "favorites": list(dict.fromkeys(flags.get("favorites") or [])),
-        "printed": list(dict.fromkeys(flags.get("printed") or [])),
-    }
+    data = normalize_gallery_flags_data(flags)
     GALLERY_FLAGS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def remove_model_dirs_from_gallery_flags(flags: dict, model_dirs: List[str]) -> dict:
+    targets = {str(item or "").strip() for item in (model_dirs or []) if str(item or "").strip()}
+    if not targets:
+        return normalize_gallery_flags_data(flags)
+    data = normalize_gallery_flags_data(flags)
+    data["favorites"] = [x for x in data.get("favorites", []) if x not in targets]
+    data["printed"] = [x for x in data.get("printed", []) if x not in targets]
+    folders = []
+    for folder in data.get("folders", []):
+        next_folder = dict(folder)
+        next_folder["modelDirs"] = [x for x in folder.get("modelDirs", []) if x not in targets]
+        next_folder["updatedAt"] = now_iso()
+        folders.append(next_folder)
+    data["folders"] = folders
+    return data
 
 
 def read_cookie(cfg, platform: str = "cn") -> str:
@@ -2798,11 +2873,8 @@ async def api_gallery_flags():
 
 @app.post("/api/gallery/flags")
 async def api_save_gallery_flags(body: dict):
-    favorites = body.get("favorites") if isinstance(body, dict) else []
-    printed = body.get("printed") if isinstance(body, dict) else []
-    favorites_list = [str(x) for x in favorites] if isinstance(favorites, list) else []
-    printed_list = [str(x) for x in printed] if isinstance(printed, list) else []
-    save_gallery_flags({"favorites": favorites_list, "printed": printed_list})
+    payload = body if isinstance(body, dict) else {}
+    save_gallery_flags(payload)
     return {"status": "ok"}
 
 
@@ -3448,11 +3520,43 @@ async def api_delete_model(model_dir: str):
         logger.exception("删除目录失败")
         raise HTTPException(500, f"删除失败: {e}")
 
-    flags = load_gallery_flags()
-    flags["favorites"] = [x for x in flags.get("favorites", []) if x != model_dir]
-    flags["printed"] = [x for x in flags.get("printed", []) if x != model_dir]
-    save_gallery_flags(flags)
+    save_gallery_flags(remove_model_dirs_from_gallery_flags(load_gallery_flags(), [model_dir]))
     return {"status": "ok"}
+
+
+@app.post("/api/models/batch-delete")
+async def api_batch_delete_models(body: dict):
+    payload = body if isinstance(body, dict) else {}
+    model_dirs_raw = payload.get("model_dirs") if isinstance(payload.get("model_dirs"), list) else []
+    model_dirs = []
+    for item in model_dirs_raw:
+        value = str(item or "").strip()
+        if value and value not in model_dirs:
+            model_dirs.append(value)
+    if not model_dirs:
+        raise HTTPException(400, "model_dirs 不能为空")
+
+    deleted = []
+    failed = []
+    for model_dir in model_dirs:
+        try:
+            target = resolve_model_dir(model_dir)
+            shutil.rmtree(target)
+            deleted.append(model_dir)
+        except HTTPException as exc:
+            failed.append({"model_dir": model_dir, "message": str(exc.detail)})
+        except Exception as exc:
+            logger.exception("批量删除目录失败: %s", model_dir)
+            failed.append({"model_dir": model_dir, "message": str(exc)})
+
+    if deleted:
+        save_gallery_flags(remove_model_dirs_from_gallery_flags(load_gallery_flags(), deleted))
+
+    return {
+        "status": "ok",
+        "deleted": deleted,
+        "failed": failed,
+    }
 
 
 # ---------- v2: 模板渲染模型详情页（测试） ----------

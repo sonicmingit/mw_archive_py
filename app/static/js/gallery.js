@@ -2,32 +2,27 @@ let models = [];
 let activeTag = "";
 let activeAuthor = "";
 let activeSource = "";
+let activeFolder = "";
 let onlyFavorites = false;
 let onlyPrinted = false;
-let useV2 = localStorage.getItem('useV2') === 'true';
-let displayedCount = 20; // Initial display count
-let loadIncrement = 20; // Load 20 more each time
+let useV2 = localStorage.getItem("useV2") === "true";
+let compactMode = localStorage.getItem("mw_gallery_compact_mode") === "true";
+let selectionMode = false;
+let displayedCount = 20;
+let loadIncrement = 20;
 let isTagsExpanded = false;
 let isAuthorsExpanded = false;
 let currentLightboxList = [];
 let currentLightboxIndex = 0;
 const filterChipLimit = 12;
 const authorChipLimit = 10;
-const statBlueprint = [
-  { key: "likes", icon: "👍", label: "点赞" },
-  { key: "favorites", icon: "⭐", label: "收藏" },
-  { key: "downloads", icon: "⬇️", label: "下载" },
-  { key: "prints", icon: "🖨️", label: "打印" },
-  { key: "views", icon: "👁️", label: "浏览" }
-];
 const kwInput = document.getElementById("kw");
 const filterChips = document.getElementById("filterChips");
 const authorChips = document.getElementById("authorChips");
 const sourceMenu = document.getElementById("sourceMenu");
+const folderMenu = document.getElementById("folderMenu");
 const clearBtn = document.getElementById("clearBtn");
 const resetSearchBtn = document.getElementById("resetSearchBtn");
-const paginationWrap = document.getElementById("pagination");
-const pageSizeInput = document.getElementById("pageSizeInput");
 const totalCountEl = document.getElementById("totalCount");
 const sortOrderSelect = document.getElementById("sortOrder");
 const favOnlyBtn = document.getElementById("favOnlyBtn");
@@ -38,11 +33,84 @@ const filterModalChips = document.getElementById("filterModalChips");
 const lightbox = document.getElementById("lightbox");
 const lightboxImg = document.getElementById("lightbox-img");
 const lightboxCaption = document.getElementById("lightbox-caption");
+const selectionToggleBtn = document.getElementById("selectionToggleBtn");
+const compactToggleBtn = document.getElementById("compactToggleBtn");
+const selectionBar = document.getElementById("selectionBar");
+const selectedCountEl = document.getElementById("selectedCount");
+const clearSelectionBtn = document.getElementById("clearSelectionBtn");
+const addToFolderBtn = document.getElementById("addToFolderBtn");
+const batchDeleteBtn = document.getElementById("batchDeleteBtn");
+const folderModal = document.getElementById("folderModal");
+const folderOptionList = document.getElementById("folderOptionList");
+const newFolderNameInput = document.getElementById("newFolderName");
+const newFolderDescriptionInput = document.getElementById("newFolderDescription");
+const folderModalMsg = document.getElementById("folderModalMsg");
+const folderModalSaveBtn = document.getElementById("folderModalSaveBtn");
+const folderModalCloseBtn = document.getElementById("folderModalCloseBtn");
+const folderModalCancelBtn = document.getElementById("folderModalCancelBtn");
+const v2ToggleBtn = document.getElementById("v2ToggleBtn");
 let favoriteSet = new Set();
 let printedSet = new Set();
+let selectedModelKeys = new Set();
+let folders = [];
+let infiniteScrollBound = false;
 
 function getModelKey(m) {
-  return String(m.dir || "");
+  return String((m && m.dir) || "");
+}
+
+function getFolderById(folderId) {
+  return folders.find((folder) => folder.id === folderId) || null;
+}
+
+function cloneFolders() {
+  return folders.map((folder) => ({
+    id: folder.id,
+    name: folder.name,
+    description: folder.description || "",
+    modelDirs: Array.isArray(folder.modelDirs) ? folder.modelDirs.slice() : [],
+    createdAt: folder.createdAt || "",
+    updatedAt: folder.updatedAt || ""
+  }));
+}
+
+function normalizeFolders(rawFolders) {
+  const list = Array.isArray(rawFolders) ? rawFolders : [];
+  const seenIds = new Set();
+  const seenNames = new Set();
+  return list.reduce((acc, item) => {
+    if (!item || typeof item !== "object") return acc;
+    const name = String(item.name || "").trim();
+    if (!name) return acc;
+    const folderId = String(item.id || "").trim() || `${Date.now()}_${acc.length}`;
+    if (seenIds.has(folderId)) return acc;
+    const loweredName = name.toLowerCase();
+    if (seenNames.has(loweredName)) return acc;
+    seenIds.add(folderId);
+    seenNames.add(loweredName);
+    const modelDirs = [];
+    (Array.isArray(item.modelDirs) ? item.modelDirs : []).forEach((value) => {
+      const key = String(value || "").trim();
+      if (key && !modelDirs.includes(key)) modelDirs.push(key);
+    });
+    acc.push({
+      id: folderId,
+      name,
+      description: String(item.description || "").trim(),
+      modelDirs,
+      createdAt: String(item.createdAt || "").trim(),
+      updatedAt: String(item.updatedAt || "").trim()
+    });
+    return acc;
+  }, []);
+}
+
+function buildFlagsPayload() {
+  return {
+    favorites: Array.from(favoriteSet),
+    printed: Array.from(printedSet),
+    folders: cloneFolders()
+  };
 }
 
 async function loadFlags() {
@@ -52,32 +120,27 @@ async function loadFlags() {
     const data = await res.json();
     favoriteSet = new Set(Array.isArray(data.favorites) ? data.favorites : []);
     printedSet = new Set(Array.isArray(data.printed) ? data.printed : []);
+    folders = normalizeFolders(data.folders);
   } catch (e) {
     console.warn("载入标记失败", e);
     favoriteSet = new Set();
     printedSet = new Set();
+    folders = [];
   }
 }
 
 async function saveFlags() {
   try {
-    await fetch("/api/gallery/flags", {
+    const res = await fetch("/api/gallery/flags", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        favorites: Array.from(favoriteSet),
-        printed: Array.from(printedSet)
-      })
+      body: JSON.stringify(buildFlagsPayload())
     });
+    if (!res.ok) throw new Error("save flags failed");
   } catch (e) {
     console.warn("保存标记失败", e);
+    throw e;
   }
-}
-
-function clampPageSize(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return pageSize;
-  return Math.min(100, Math.max(1, Math.floor(parsed)));
 }
 
 function formatDate(value) {
@@ -85,27 +148,6 @@ function formatDate(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("zh-CN");
-}
-
-function toNumber(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function selectTag(tag) {
-  activeTag = tag;
-  displayedCount = loadIncrement;
-  renderFilters();
-  renderAuthorFilters();
-  render();
-}
-
-function selectAuthor(name) {
-  activeAuthor = name;
-  displayedCount = loadIncrement;
-  renderFilters();
-  renderAuthorFilters();
-  render();
 }
 
 function sortModelsDesc(list) {
@@ -147,11 +189,33 @@ function formatSourceLabel(value) {
   return "MakerWorld 国内";
 }
 
+function getFolderCount(folderId) {
+  const folder = getFolderById(folderId);
+  return folder ? folder.modelDirs.length : 0;
+}
+
+function selectTag(tag) {
+  activeTag = tag;
+  displayedCount = loadIncrement;
+  renderAll();
+}
+
+function selectAuthor(name) {
+  activeAuthor = name;
+  displayedCount = loadIncrement;
+  renderAll();
+}
+
 function selectSource(source) {
   activeSource = source;
   displayedCount = loadIncrement;
-  renderSourceMenu();
-  render();
+  renderAll();
+}
+
+function selectFolder(folderId) {
+  activeFolder = folderId;
+  displayedCount = loadIncrement;
+  renderAll();
 }
 
 function syncFlagFilterButtons() {
@@ -165,16 +229,34 @@ function syncFlagFilterButtons() {
   }
 }
 
-// Updated to create Sidebar Items
-function createFilterChip({ label, value, count, isActive, onSelect, extraClass }) {
+function syncModeButtons() {
+  if (selectionToggleBtn) {
+    selectionToggleBtn.classList.toggle("active", selectionMode);
+    selectionToggleBtn.setAttribute("aria-pressed", selectionMode ? "true" : "false");
+  }
+  if (compactToggleBtn) {
+    compactToggleBtn.classList.toggle("active", compactMode);
+    compactToggleBtn.setAttribute("aria-pressed", compactMode ? "true" : "false");
+  }
+  document.body.classList.toggle("selection-mode", selectionMode);
+  document.body.classList.toggle("compact-mode", compactMode);
+}
+
+function syncSelectionBar() {
+  const count = selectedModelKeys.size;
+  if (selectedCountEl) selectedCountEl.textContent = String(count);
+  if (selectionBar) selectionBar.style.display = selectionMode ? "flex" : "none";
+  if (addToFolderBtn) addToFolderBtn.disabled = count === 0;
+  if (batchDeleteBtn) batchDeleteBtn.disabled = count === 0;
+  if (clearSelectionBtn) clearSelectionBtn.disabled = count === 0;
+}
+
+function createFilterChip({ label, value, count, isActive, onSelect, extraClass, subLabel }) {
   const btn = document.createElement("button");
   btn.type = "button";
-  // Use .side-item for sidebar styling
   btn.className = "side-item" + (isActive ? " active" : "") + (extraClass ? ` ${extraClass}` : "");
-
-  // Format: "Label (Count)"
-  btn.innerHTML = `<span>${label}</span> <span style="font-size:12px; opacity:0.6;">${typeof count === "number" ? count : ""}</span>`;
-
+  const rightText = typeof count === "number" ? count : (subLabel || "");
+  btn.innerHTML = `<span>${label}</span> <span style="font-size:12px; opacity:0.6;">${rightText}</span>`;
   btn.addEventListener("click", () => onSelect(value));
   return btn;
 }
@@ -193,7 +275,10 @@ function openFilterModal({ type, items, total }) {
     value: "",
     count: total,
     isActive: activeValue === "",
-    onSelect: (value) => { selectFn(value); closeFilterModal(); }
+    onSelect: (value) => {
+      selectFn(value);
+      closeFilterModal();
+    }
   }));
 
   items.forEach(([value, count]) => {
@@ -202,7 +287,10 @@ function openFilterModal({ type, items, total }) {
       value,
       count,
       isActive: activeValue === value,
-      onSelect: (val) => { selectFn(val); closeFilterModal(); }
+      onSelect: (val) => {
+        selectFn(val);
+        closeFilterModal();
+      }
     }));
   });
 
@@ -218,44 +306,103 @@ function closeFilterModal() {
   document.body.style.overflow = "";
 }
 
-function toggleFavorite(m) {
+async function toggleFavorite(m) {
   const key = getModelKey(m);
   if (!key) return;
-  if (favoriteSet.has(key)) { favoriteSet.delete(key); } else { favoriteSet.add(key); }
-  saveFlags();
-  render();
+  const nextValue = !favoriteSet.has(key);
+  if (nextValue) favoriteSet.add(key);
+  else favoriteSet.delete(key);
+  try {
+    await saveFlags();
+    renderAll();
+  } catch (_) {
+    if (nextValue) favoriteSet.delete(key);
+    else favoriteSet.add(key);
+  }
 }
 
-function togglePrinted(m) {
+async function togglePrinted(m) {
   const key = getModelKey(m);
   if (!key) return;
-  if (printedSet.has(key)) { printedSet.delete(key); } else { printedSet.add(key); }
-  saveFlags();
-  render();
+  const nextValue = !printedSet.has(key);
+  if (nextValue) printedSet.add(key);
+  else printedSet.delete(key);
+  try {
+    await saveFlags();
+    renderAll();
+  } catch (_) {
+    if (nextValue) printedSet.delete(key);
+    else printedSet.add(key);
+  }
 }
 
-function deleteModel(m) {
+function cleanupSelection() {
+  const validKeys = new Set(models.map((m) => getModelKey(m)));
+  selectedModelKeys = new Set(Array.from(selectedModelKeys).filter((key) => validKeys.has(key)));
+}
+
+async function deleteModel(m) {
   const key = getModelKey(m);
   if (!key) return;
   const name = m.title || m.baseName || m.dir || "该模型";
-  if (!window.confirm(`确定物理删除「${name}」? 删除后无法恢复。`)) return;
-  fetch(`/api/models/${encodeURIComponent(key)}/delete`, { method: "POST" })
-    .then((res) => {
-      if (!res.ok) throw new Error("delete failed");
-      models = models.filter(item => getModelKey(item) !== key);
-      favoriteSet.delete(key);
-      printedSet.delete(key);
-      saveFlags();
-      displayedCount = loadIncrement;
-      renderFilters();
-      renderAuthorFilters();
-      renderSourceMenu();
-      render();
-    })
-    .catch((e) => {
-      console.error("删除失败", e);
-      alert("删除失败，请检查服务器日志");
+  if (!window.confirm(`确定物理删除「${name}」？删除后无法恢复。`)) return;
+  try {
+    const res = await fetch(`/api/models/${encodeURIComponent(key)}/delete`, { method: "POST" });
+    if (!res.ok) throw new Error("delete failed");
+    models = models.filter((item) => getModelKey(item) !== key);
+    favoriteSet.delete(key);
+    printedSet.delete(key);
+    folders = folders.map((folder) => ({
+      ...folder,
+      modelDirs: folder.modelDirs.filter((dir) => dir !== key)
+    }));
+    selectedModelKeys.delete(key);
+    cleanupSelection();
+    displayedCount = loadIncrement;
+    renderAll();
+  } catch (e) {
+    console.error("删除失败", e);
+    alert("删除失败，请检查服务器日志");
+  }
+}
+
+async function batchDeleteSelected() {
+  const keys = Array.from(selectedModelKeys);
+  if (!keys.length) return;
+  if (!window.confirm(`确定批量删除已选中的 ${keys.length} 个模型？该操作会物理删除目录且无法恢复。`)) return;
+  try {
+    const res = await fetch("/api/models/batch-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_dirs: keys })
     });
+    if (!res.ok) throw new Error("batch delete failed");
+    const data = await res.json();
+    const deleted = Array.isArray(data.deleted) ? data.deleted : [];
+    const failed = Array.isArray(data.failed) ? data.failed : [];
+    if (deleted.length) {
+      models = models.filter((item) => !deleted.includes(getModelKey(item)));
+      deleted.forEach((key) => {
+        favoriteSet.delete(key);
+        printedSet.delete(key);
+        selectedModelKeys.delete(key);
+      });
+      folders = folders.map((folder) => ({
+        ...folder,
+        modelDirs: folder.modelDirs.filter((dir) => !deleted.includes(dir))
+      }));
+    }
+    cleanupSelection();
+    displayedCount = loadIncrement;
+    renderAll();
+    if (failed.length) {
+      const detail = failed.map((item) => `${item.model_dir}: ${item.message}`).join("\n");
+      alert(`已删除 ${deleted.length} 个模型，以下删除失败：\n${detail}`);
+    }
+  } catch (e) {
+    console.error("批量删除失败", e);
+    alert("批量删除失败，请检查服务器日志");
+  }
 }
 
 async function load() {
@@ -267,35 +414,34 @@ async function load() {
     console.error("载入模型失败", e);
     models = [];
   }
-  renderFilters();
-  renderAuthorFilters();
-  renderSourceMenu();
+  cleanupSelection();
   syncFlagFilterButtons();
+  syncModeButtons();
+  syncSelectionBar();
   displayedCount = loadIncrement;
-  render();
+  renderAll();
   setupInfiniteScroll();
 }
 
 function renderFilters() {
   if (!filterChips) return;
   const counts = {};
-  models.forEach(m => (m.tags || []).forEach(tag => {
+  models.forEach((m) => (m.tags || []).forEach((tag) => {
     counts[tag] = (counts[tag] || 0) + 1;
   }));
   filterChips.innerHTML = "";
-  const entries = Object.entries(counts)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const displayLimit = isTagsExpanded ? entries.length : filterChipLimit;
 
-  entries.slice(0, displayLimit)
-    .forEach(([tag, count]) => filterChips.appendChild(createFilterChip({
+  entries.slice(0, displayLimit).forEach(([tag, count]) => {
+    filterChips.appendChild(createFilterChip({
       label: tag,
       value: tag,
       count,
       isActive: activeTag === tag,
       onSelect: selectTag
-    })));
+    }));
+  });
 
   if (entries.length > filterChipLimit) {
     const moreBtn = document.createElement("button");
@@ -303,7 +449,7 @@ function renderFilters() {
     moreBtn.className = "side-item";
     moreBtn.style.textAlign = "center";
     moreBtn.style.color = "var(--color-primary)";
-    moreBtn.textContent = isTagsExpanded ? `收起标签` : `更多标签 (${entries.length - filterChipLimit})+`;
+    moreBtn.textContent = isTagsExpanded ? "收起标签" : `更多标签 (${entries.length - filterChipLimit})+`;
     moreBtn.addEventListener("click", () => {
       isTagsExpanded = !isTagsExpanded;
       renderFilters();
@@ -315,24 +461,23 @@ function renderFilters() {
 function renderAuthorFilters() {
   if (!authorChips) return;
   const counts = {};
-  models.forEach(m => {
-    const name = (m.author && m.author.name) ? m.author.name : "未知作者";
+  models.forEach((m) => {
+    const name = m.author?.name || "未知作者";
     counts[name] = (counts[name] || 0) + 1;
   });
   authorChips.innerHTML = "";
-  const entries = Object.entries(counts)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const displayLimit = isAuthorsExpanded ? entries.length : authorChipLimit;
 
-  entries.slice(0, displayLimit)
-    .forEach(([name, count]) => authorChips.appendChild(createFilterChip({
+  entries.slice(0, displayLimit).forEach(([name, count]) => {
+    authorChips.appendChild(createFilterChip({
       label: name,
       value: name,
       count,
       isActive: activeAuthor === name,
       onSelect: selectAuthor
-    })));
+    }));
+  });
 
   if (entries.length > authorChipLimit) {
     const moreBtn = document.createElement("button");
@@ -340,7 +485,7 @@ function renderAuthorFilters() {
     moreBtn.className = "side-item";
     moreBtn.style.textAlign = "center";
     moreBtn.style.color = "var(--color-primary)";
-    moreBtn.textContent = isAuthorsExpanded ? `收起作者` : `更多作者 (${entries.length - authorChipLimit})+`;
+    moreBtn.textContent = isAuthorsExpanded ? "收起作者" : `更多作者 (${entries.length - authorChipLimit})+`;
     moreBtn.addEventListener("click", () => {
       isAuthorsExpanded = !isAuthorsExpanded;
       renderAuthorFilters();
@@ -352,7 +497,7 @@ function renderAuthorFilters() {
 function renderSourceMenu() {
   if (!sourceMenu) return;
   const counts = {};
-  models.forEach(m => {
+  models.forEach((m) => {
     const key = getSourceValue(m);
     counts[key] = (counts[key] || 0) + 1;
   });
@@ -366,29 +511,51 @@ function renderSourceMenu() {
   const order = ["mw_cn", "mw_global", "localmodel", "others"];
   sourceMenu.innerHTML = "";
 
-  const allBtn = document.createElement("button");
-  allBtn.type = "button";
-  // Sidebar style
-  allBtn.className = "side-item" + (activeSource === "" ? " active" : "");
-  allBtn.innerHTML = `<span>全部</span> <span style="font-size:12px;opacity:0.6;">${total}</span>`;
-  allBtn.addEventListener("click", () => selectSource(""));
-  sourceMenu.appendChild(allBtn);
+  sourceMenu.appendChild(createFilterChip({
+    label: "全部",
+    value: "",
+    count: total,
+    isActive: activeSource === "",
+    onSelect: selectSource
+  }));
 
   order.forEach((key) => {
     if (!(key in counts)) return;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "side-item" + (activeSource === key ? " active" : "");
-    btn.innerHTML = `<span>${labels[key]}</span> <span style="font-size:12px;opacity:0.6;">${counts[key] || 0}</span>`;
-    btn.addEventListener("click", () => selectSource(key));
-    sourceMenu.appendChild(btn);
+    sourceMenu.appendChild(createFilterChip({
+      label: labels[key],
+      value: key,
+      count: counts[key] || 0,
+      isActive: activeSource === key,
+      onSelect: selectSource
+    }));
+  });
+}
+
+function renderFolderMenu() {
+  if (!folderMenu) return;
+  folderMenu.innerHTML = "";
+  folderMenu.appendChild(createFilterChip({
+    label: "全部",
+    value: "",
+    count: models.length,
+    isActive: activeFolder === "",
+    onSelect: selectFolder
+  }));
+  folders.forEach((folder) => {
+    folderMenu.appendChild(createFilterChip({
+      label: folder.name,
+      value: folder.id,
+      count: getFolderCount(folder.id),
+      isActive: activeFolder === folder.id,
+      onSelect: selectFolder,
+      extraClass: "side-item--folder"
+    }));
   });
 }
 
 function updateLoadMoreIndicator(hasMore) {
   const grid = document.getElementById("grid");
-  if (!grid) return;
-
+  if (!grid || !grid.parentElement) return;
   let indicator = document.getElementById("loadMoreIndicator");
   if (hasMore) {
     if (!indicator) {
@@ -399,161 +566,222 @@ function updateLoadMoreIndicator(hasMore) {
       grid.parentElement.appendChild(indicator);
     }
     indicator.style.display = "block";
-  } else {
-    if (indicator) indicator.style.display = "none";
+  } else if (indicator) {
+    indicator.style.display = "none";
   }
 }
 
 function setupInfiniteScroll() {
-  const content = document.querySelector('.content');
+  if (infiniteScrollBound) return;
+  const content = document.querySelector(".content");
   if (!content) return;
-
   let isLoading = false;
-
-  content.addEventListener('scroll', () => {
+  content.addEventListener("scroll", () => {
     if (isLoading) return;
-
     const scrollTop = content.scrollTop;
     const scrollHeight = content.scrollHeight;
     const clientHeight = content.clientHeight;
-
-    // Load more when scrolled to 80% of content
     if (scrollTop + clientHeight >= scrollHeight * 0.8) {
+      const total = getFilteredList().length;
+      if (displayedCount >= total) return;
       isLoading = true;
       displayedCount += loadIncrement;
-      render(true);
+      renderGrid(true);
       setTimeout(() => { isLoading = false; }, 300);
     }
   });
+  infiniteScrollBound = true;
 }
 
 function openLightbox(list, index) {
-  if (!list || !list.length) return;
+  if (!list || !list.length || !lightbox || !lightboxImg) return;
   currentLightboxList = list;
   currentLightboxIndex = index;
   const m = list[index];
-  const imgPath = `/files/${m.dir}/images/${m.cover || 'design_01.png'}`;
-  lightboxImg.src = imgPath;
-  lightboxImg.alt = m.title || m.baseName || '';
-  lightboxImg.classList.remove('zoomed');
-  lightboxCaption.textContent = m.title || m.baseName || '';
-  lightbox.style.display = 'flex';
-  lightbox.setAttribute('aria-hidden', 'false');
-  document.body.style.overflow = 'hidden';
-  const closeBtn = lightbox.querySelector('.lightbox-close');
-  if (closeBtn) closeBtn.focus();
+  lightboxImg.src = `/files/${m.dir}/images/${m.cover || "design_01.png"}`;
+  lightboxImg.alt = m.title || m.baseName || "";
+  if (lightboxCaption) lightboxCaption.textContent = m.title || m.baseName || "";
+  lightbox.style.display = "flex";
+  lightbox.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
 }
+
 function closeLightbox() {
-  lightbox.style.display = 'none';
-  lightbox.setAttribute('aria-hidden', 'true');
-  lightboxImg.src = '';
-  document.body.style.overflow = '';
+  if (!lightbox) return;
+  lightbox.style.display = "none";
+  lightbox.setAttribute("aria-hidden", "true");
+  if (lightboxImg) lightboxImg.src = "";
+  document.body.style.overflow = "";
 }
+
 function lightboxPrev() {
-  if (currentLightboxIndex > 0) { currentLightboxIndex--; openLightbox(currentLightboxList, currentLightboxIndex); }
+  if (currentLightboxIndex > 0) {
+    currentLightboxIndex -= 1;
+    openLightbox(currentLightboxList, currentLightboxIndex);
+  }
 }
+
 function lightboxNext() {
-  if (currentLightboxIndex < currentLightboxList.length - 1) { currentLightboxIndex++; openLightbox(currentLightboxList, currentLightboxIndex); }
+  if (currentLightboxIndex < currentLightboxList.length - 1) {
+    currentLightboxIndex += 1;
+    openLightbox(currentLightboxList, currentLightboxIndex);
+  }
 }
 
 function getFilteredList() {
   const keyword = (kwInput?.value || "").trim().toLowerCase();
   let list = models;
   if (keyword) {
-    list = list.filter(m => {
+    list = list.filter((m) => {
       const title = (m.title || m.baseName || "").toLowerCase();
-      const tags = (m.tags || []).map(t => t.toLowerCase());
-      return title.includes(keyword) || tags.some(t => t.includes(keyword));
+      const tags = (m.tags || []).map((t) => t.toLowerCase());
+      return title.includes(keyword) || tags.some((t) => t.includes(keyword));
     });
   }
-  if (activeTag) {
-    list = list.filter(m => (m.tags || []).includes(activeTag));
+  if (activeTag) list = list.filter((m) => (m.tags || []).includes(activeTag));
+  if (activeAuthor) list = list.filter((m) => (m.author?.name || "未知作者") === activeAuthor);
+  if (activeSource) list = list.filter((m) => getSourceValue(m) === activeSource);
+  if (activeFolder) {
+    const folder = getFolderById(activeFolder);
+    const folderKeys = new Set(folder ? folder.modelDirs : []);
+    list = list.filter((m) => folderKeys.has(getModelKey(m)));
   }
-  if (activeAuthor) {
-    list = list.filter(m => (m.author?.name || "未知作者") === activeAuthor);
-  }
-  if (activeSource) {
-    list = list.filter(m => getSourceValue(m) === activeSource);
-  }
-  if (onlyFavorites) {
-    list = list.filter(m => favoriteSet.has(getModelKey(m)));
-  }
-  if (onlyPrinted) {
-    list = list.filter(m => printedSet.has(getModelKey(m)));
-  }
-
+  if (onlyFavorites) list = list.filter((m) => favoriteSet.has(getModelKey(m)));
+  if (onlyPrinted) list = list.filter((m) => printedSet.has(getModelKey(m)));
   return sortModelsDesc(list);
 }
 
-function render(append = false) {
+function getModelDetailUrl(m) {
+  const safeDir = encodeURIComponent(m.dir);
+  return useV2 ? `/v2/files/${safeDir}` : `/files/${safeDir}/index.html`;
+}
+
+function updateVersionToggle() {
+  if (!v2ToggleBtn) return;
+  const label = v2ToggleBtn.querySelector(".toggle-label");
+  if (label) label.textContent = useV2 ? "V2" : "本地";
+  v2ToggleBtn.classList.toggle("active", useV2);
+}
+
+function toggleSelectionForModel(modelKey) {
+  if (!modelKey) return;
+  if (selectedModelKeys.has(modelKey)) selectedModelKeys.delete(modelKey);
+  else selectedModelKeys.add(modelKey);
+  syncSelectionBar();
+  renderGrid();
+}
+
+function clearSelection() {
+  selectedModelKeys = new Set();
+  syncSelectionBar();
+  renderGrid();
+}
+
+function setSelectionMode(nextValue) {
+  selectionMode = !!nextValue;
+  if (!selectionMode) clearSelection();
+  syncModeButtons();
+  syncSelectionBar();
+  renderGrid();
+}
+
+function renderGrid(append = false) {
   const grid = document.getElementById("grid");
   const empty = document.getElementById("empty");
-  if (!grid) return;
-
+  if (!grid || !empty) return;
   const list = getFilteredList();
   const total = list.length;
   if (totalCountEl) totalCountEl.textContent = String(total);
-
-  // Infinite scroll: slice based on displayedCount
   const displayList = list.slice(0, displayedCount);
 
   if (!append) grid.innerHTML = "";
-
   if (!displayList.length) {
     const tips = [];
     if (activeTag) tips.push(`标签「${activeTag}」`);
-    if (keyword) tips.push(`关键词「${kwInput.value.trim()}」`);
+    if (kwInput?.value.trim()) tips.push(`关键词「${kwInput.value.trim()}」`);
     if (activeAuthor) tips.push(`作者「${activeAuthor}」`);
     if (activeSource) tips.push(`来源「${formatSourceLabel(activeSource)}」`);
+    if (activeFolder) {
+      const folder = getFolderById(activeFolder);
+      if (folder) tips.push(`收藏夹「${folder.name}」`);
+    }
     if (onlyFavorites) tips.push("收藏");
     if (onlyPrinted) tips.push("已打印");
     empty.textContent = tips.length ? `未找到匹配 ${tips.join("、")}` : "暂无模型";
     empty.style.display = "block";
+    updateLoadMoreIndicator(false);
     return;
   }
   empty.style.display = "none";
 
   const startIdx = append ? grid.children.length : 0;
-
-  displayList.slice(startIdx).forEach((m, idx) => {
+  displayList.slice(startIdx).forEach((m) => {
     const modelKey = getModelKey(m);
     const isFavorite = modelKey && favoriteSet.has(modelKey);
     const isPrinted = modelKey && printedSet.has(modelKey);
+    const isSelected = modelKey && selectedModelKeys.has(modelKey);
 
     const card = document.createElement("article");
     card.className = "card";
-    card.setAttribute('role', 'listitem');
+    if (isSelected) card.classList.add("card--selected");
+    card.setAttribute("role", "listitem");
     card.tabIndex = 0;
+    if (selectionMode) {
+      card.classList.add("card--selectable");
+      card.addEventListener("click", () => toggleSelectionForModel(modelKey));
+    }
 
-    // Cover Area (Clean, No Overlay)
+    const selectionBadge = document.createElement("button");
+    selectionBadge.type = "button";
+    selectionBadge.className = "card-select-toggle";
+    selectionBadge.setAttribute("aria-pressed", isSelected ? "true" : "false");
+    selectionBadge.innerHTML = isSelected ? '<i class="fas fa-check"></i>' : '<i class="fas fa-plus"></i>';
+    selectionBadge.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleSelectionForModel(modelKey);
+    });
+    card.appendChild(selectionBadge);
+
     const coverWrap = document.createElement("div");
     coverWrap.className = "card-cover";
-    coverWrap.onclick = () => window.open(getModelDetailUrl(m), `_blank`);
+    coverWrap.addEventListener("click", (e) => {
+      if (selectionMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleSelectionForModel(modelKey);
+        return;
+      }
+      window.open(getModelDetailUrl(m), "_blank");
+    });
 
     const cover = document.createElement("img");
-    const coverName = m.cover || "design_01.png";
-    cover.src = `/files/${m.dir}/images/${coverName}`;
-    cover.loading = 'lazy';
+    cover.src = `/files/${m.dir}/images/${m.cover || "design_01.png"}`;
+    cover.loading = "lazy";
     cover.alt = m.title || m.baseName || "模型封面";
-    cover.onerror = () => { cover.src = '/static/imgs/no-image.png'; };
+    cover.onerror = () => { cover.src = "/static/imgs/fav.png"; };
     coverWrap.appendChild(cover);
+    card.appendChild(coverWrap);
 
-    // Card Body
     const body = document.createElement("div");
     body.className = "card-body";
 
-    // Title
     const title = document.createElement("h3");
     title.className = "title";
     title.title = m.title || m.baseName || "未知模型";
     title.textContent = m.title || m.baseName || "未知模型";
-    title.onclick = () => window.open(getModelDetailUrl(m), `_blank`);
+    title.addEventListener("click", (e) => {
+      if (selectionMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleSelectionForModel(modelKey);
+        return;
+      }
+      window.open(getModelDetailUrl(m), "_blank");
+    });
     body.appendChild(title);
 
-    // Author Info
     const meta = document.createElement("div");
     meta.className = "card-meta";
-
     const authorWrap = document.createElement("div");
     authorWrap.className = "author";
     if (m.author?.avatarRelPath) {
@@ -574,94 +802,87 @@ function render(append = false) {
     meta.appendChild(authorWrap);
     body.appendChild(meta);
 
-    // Stats Row (Icons Only)
     const statsWrap = document.createElement("div");
     statsWrap.className = "stats";
-
-    if (m.stats?.likes > 0) {
-      statsWrap.appendChild(createStatIcon("fas fa-thumbs-up", m.stats.likes, "点赞"));
-    }
-    if (m.stats?.favorites > 0) {
-      statsWrap.appendChild(createStatIcon("fas fa-star", m.stats.favorites, "收藏"));
-    }
-    if (m.stats?.prints > 0) {
-      statsWrap.appendChild(createStatIcon("fas fa-print", m.stats.prints, "打印"));
-    }
+    if (m.stats?.likes > 0) statsWrap.appendChild(createStatIcon("fas fa-thumbs-up", m.stats.likes, "点赞"));
+    if (m.stats?.favorites > 0) statsWrap.appendChild(createStatIcon("fas fa-star", m.stats.favorites, "收藏"));
+    if (m.stats?.prints > 0) statsWrap.appendChild(createStatIcon("fas fa-print", m.stats.prints, "打印"));
     if (m.stats?.downloads > 0 || m.downloadCount > 0) {
       statsWrap.appendChild(createStatIcon("fas fa-download", m.stats?.downloads || m.downloadCount, "下载"));
     }
     body.appendChild(statsWrap);
 
-    // Date Info
     const dateInfo = document.createElement("div");
     dateInfo.className = "card-dates";
-
     if (m.publishedAt) {
       const publishDate = document.createElement("span");
       publishDate.className = "date-item";
       publishDate.innerHTML = `<i class="far fa-calendar-alt"></i> ${formatDate(m.publishedAt)}`;
-      publishDate.title = `发布时间: ${new Date(m.publishedAt).toLocaleString('zh-CN')}`;
       dateInfo.appendChild(publishDate);
     }
-
     if (m.collectedAt) {
       const collectDate = document.createElement("span");
       collectDate.className = "date-item";
       collectDate.innerHTML = `<i class="fas fa-archive"></i> ${formatDate(m.collectedAt)}`;
-      collectDate.title = `采集时间: ${new Date(m.collectedAt).toLocaleString('zh-CN')}`;
       dateInfo.appendChild(collectDate);
     }
+    if (dateInfo.children.length > 0) body.appendChild(dateInfo);
 
-    if (dateInfo.children.length > 0) {
-      body.appendChild(dateInfo);
-    }
-
-    // Bottom Actions Row (PERSISTENT & ALWAYS VISIBLE)
     const actions = document.createElement("div");
     actions.className = "card-actions";
 
-    // Favorite Button
+    const openBtn = document.createElement("button");
+    openBtn.className = "action-btn";
+    openBtn.title = "查看详情";
+    openBtn.innerHTML = '<i class="fas fa-arrow-up-right-from-square"></i>';
+    openBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.open(getModelDetailUrl(m), "_blank");
+    });
+    actions.appendChild(openBtn);
+
     const favBtn = document.createElement("button");
     favBtn.className = "action-btn" + (isFavorite ? " active" : "");
     favBtn.title = isFavorite ? "取消收藏" : "收藏";
     favBtn.innerHTML = isFavorite ? '<i class="fas fa-heart"></i>' : '<i class="far fa-heart"></i>';
-    favBtn.onclick = (e) => { e.stopPropagation(); toggleFavorite(m); };
+    favBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await toggleFavorite(m);
+    });
     actions.appendChild(favBtn);
 
-    // Printed Button
     const printedBtn = document.createElement("button");
     printedBtn.className = "action-btn" + (isPrinted ? " active" : "");
     printedBtn.title = isPrinted ? "取消标记" : "标记已打印";
     printedBtn.innerHTML = isPrinted ? '<i class="fas fa-check-circle"></i>' : '<i class="far fa-check-circle"></i>';
-    printedBtn.onclick = (e) => { e.stopPropagation(); togglePrinted(m); };
+    printedBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await togglePrinted(m);
+    });
     actions.appendChild(printedBtn);
 
-    // Spacer
     const spacer = document.createElement("div");
     spacer.style.flex = "1";
     actions.appendChild(spacer);
 
-    // Delete Button
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "action-btn danger";
     deleteBtn.title = "删除模型";
     deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
-    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteModel(m); };
+    deleteBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await deleteModel(m);
+    });
     actions.appendChild(deleteBtn);
 
     body.appendChild(actions);
-
-    // Append cover first, then body
-    card.appendChild(coverWrap);
     card.appendChild(body);
     grid.appendChild(card);
   });
 
-  // Show load more indicator if there are more items
   updateLoadMoreIndicator(displayedCount < total);
 }
 
-// Helper to create simple stat icon
 function createStatIcon(iconClass, count, title) {
   const span = document.createElement("span");
   span.className = "stat-chip";
@@ -670,71 +891,145 @@ function createStatIcon(iconClass, count, title) {
   return span;
 }
 
-function getModelDetailUrl(m) {
-  var safeDir = encodeURIComponent(m.dir);
-  return useV2 ? `/v2/files/${safeDir}` : `/files/${safeDir}/index.html`;
+function renderFolderModalOptions() {
+  if (!folderOptionList) return;
+  folderOptionList.innerHTML = "";
+  if (!folders.length) {
+    folderOptionList.innerHTML = '<div class="folder-option-list__empty">暂无收藏夹，可直接在下方新建。</div>';
+    return;
+  }
+  folders.forEach((folder) => {
+    const label = document.createElement("label");
+    label.className = "folder-option";
+    label.innerHTML = `
+      <input type="checkbox" value="${folder.id}">
+      <span class="folder-option__content">
+        <span class="folder-option__name">${folder.name}</span>
+        <span class="folder-option__desc">${folder.description || "无简介"}</span>
+      </span>
+    `;
+    folderOptionList.appendChild(label);
+  });
 }
 
-function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function openFolderModal() {
+  if (!folderModal) return;
+  renderFolderModalOptions();
+  if (folderModalMsg) folderModalMsg.textContent = "";
+  if (newFolderNameInput) newFolderNameInput.value = "";
+  if (newFolderDescriptionInput) newFolderDescriptionInput.value = "";
+  folderModal.style.display = "flex";
+  folderModal.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+}
 
-function formatDate(isoString) {
-  if (!isoString) return '';
-  const date = new Date(isoString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function closeFolderModal() {
+  if (!folderModal) return;
+  folderModal.style.display = "none";
+  folderModal.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+}
+
+async function saveFolderSelection() {
+  const selectedKeys = Array.from(selectedModelKeys);
+  if (!selectedKeys.length) {
+    if (folderModalMsg) folderModalMsg.textContent = "请先选择模型。";
+    return;
+  }
+  const checkedFolderIds = Array.from(folderOptionList?.querySelectorAll('input[type="checkbox"]:checked') || []).map((node) => node.value);
+  const folderName = String(newFolderNameInput?.value || "").trim();
+  const folderDescription = String(newFolderDescriptionInput?.value || "").trim();
+  if (!checkedFolderIds.length && !folderName) {
+    if (folderModalMsg) folderModalMsg.textContent = "请选择已有收藏夹，或填写新的收藏夹名称。";
+    return;
+  }
+
+  const nextFolders = cloneFolders();
+  let createdFolderId = "";
+  if (folderName) {
+    const duplicate = nextFolders.find((folder) => folder.name.toLowerCase() === folderName.toLowerCase());
+    if (duplicate) {
+      if (folderModalMsg) folderModalMsg.textContent = "收藏夹名称已存在，请更换名称。";
+      return;
+    }
+    createdFolderId = `folder_${Date.now()}`;
+    nextFolders.push({
+      id: createdFolderId,
+      name: folderName,
+      description: folderDescription,
+      modelDirs: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  checkedFolderIds.concat(createdFolderId ? [createdFolderId] : []).forEach((folderId) => {
+    const folder = nextFolders.find((item) => item.id === folderId);
+    if (!folder) return;
+    selectedKeys.forEach((key) => {
+      if (!folder.modelDirs.includes(key)) folder.modelDirs.push(key);
+    });
+    folder.updatedAt = new Date().toISOString();
+  });
+
+  folders = normalizeFolders(nextFolders);
+  try {
+    await saveFlags();
+    renderAll();
+    closeFolderModal();
+  } catch (_) {
+    if (folderModalMsg) folderModalMsg.textContent = "保存收藏夹失败，请稍后重试。";
+  }
+}
+
+function renderAll() {
+  cleanupSelection();
+  renderFilters();
+  renderAuthorFilters();
+  renderSourceMenu();
+  renderFolderMenu();
+  syncFlagFilterButtons();
+  syncModeButtons();
+  syncSelectionBar();
+  updateVersionToggle();
+  renderGrid();
 }
 
 if (kwInput) {
-  kwInput.addEventListener("input", () => { displayedCount = loadIncrement; render(); });
+  kwInput.addEventListener("input", () => {
+    displayedCount = loadIncrement;
+    renderGrid();
+  });
 }
+
 if (clearBtn && kwInput) {
   clearBtn.addEventListener("click", () => {
     kwInput.value = "";
     displayedCount = loadIncrement;
-    render();
+    renderGrid();
   });
 }
 
-// Reset all filters button
 if (resetSearchBtn) {
   resetSearchBtn.addEventListener("click", () => {
-    // Clear search input
     if (kwInput) kwInput.value = "";
-
-    // Clear filters
     activeTag = "";
     activeAuthor = "";
     activeSource = "";
+    activeFolder = "";
     onlyFavorites = false;
     onlyPrinted = false;
-
-    // Collapse expanded lists
     isTagsExpanded = false;
     isAuthorsExpanded = false;
-
-    // Reset display count
     displayedCount = loadIncrement;
-
-    // Update UI
-    syncFlagFilterButtons();
-    renderFilters();
-    renderAuthorFilters();
-    renderSourceMenu();
-    render();
+    renderAll();
   });
 }
-
-// Removed legacy reset button listener that used non-existent currentPage
-
-
-// Removed pageSize input - using infinite scroll now
 
 if (sortOrderSelect) {
   sortOrderSelect.addEventListener("change", () => {
     displayedCount = loadIncrement;
-    render();
+    renderGrid();
   });
 }
 
@@ -743,136 +1038,79 @@ if (favOnlyBtn) {
     onlyFavorites = !onlyFavorites;
     displayedCount = loadIncrement;
     syncFlagFilterButtons();
-    render();
+    renderGrid();
   });
 }
+
 if (printedOnlyBtn) {
   printedOnlyBtn.addEventListener("click", () => {
     onlyPrinted = !onlyPrinted;
     displayedCount = loadIncrement;
     syncFlagFilterButtons();
-    render();
+    renderGrid();
   });
 }
 
-// Setup infinite scroll
-function setupInfiniteScroll() {
-  const content = document.querySelector('.content');
-  if (!content) return;
+if (selectionToggleBtn) {
+  selectionToggleBtn.addEventListener("click", () => setSelectionMode(!selectionMode));
+}
 
-  let isLoading = false;
-
-  content.addEventListener('scroll', () => {
-    if (isLoading) return;
-
-    const scrollTop = content.scrollTop;
-    const scrollHeight = content.scrollHeight;
-    const clientHeight = content.clientHeight;
-
-    // Load more when scrolled to 80% of content
-    if (scrollTop + clientHeight >= scrollHeight * 0.8) {
-      const list = getFilteredList();
-      const total = list.length;
-
-      if (displayedCount < total) {
-        isLoading = true;
-        displayedCount += loadIncrement;
-        render(true);
-        setTimeout(() => { isLoading = false; }, 300);
-      }
-    }
+if (compactToggleBtn) {
+  compactToggleBtn.addEventListener("click", () => {
+    compactMode = !compactMode;
+    localStorage.setItem("mw_gallery_compact_mode", compactMode ? "true" : "false");
+    syncModeButtons();
+    renderGrid();
   });
 }
 
-function updateLoadMoreIndicator(hasMore) {
-  const grid = document.getElementById("grid");
-  if (!grid) return;
+if (clearSelectionBtn) clearSelectionBtn.addEventListener("click", clearSelection);
+if (addToFolderBtn) addToFolderBtn.addEventListener("click", openFolderModal);
+if (batchDeleteBtn) batchDeleteBtn.addEventListener("click", batchDeleteSelected);
+if (folderModalSaveBtn) folderModalSaveBtn.addEventListener("click", saveFolderSelection);
+if (folderModalCloseBtn) folderModalCloseBtn.addEventListener("click", closeFolderModal);
+if (folderModalCancelBtn) folderModalCancelBtn.addEventListener("click", closeFolderModal);
 
-  let indicator = document.getElementById("loadMoreIndicator");
-  if (hasMore) {
-    if (!indicator) {
-      indicator = document.createElement("div");
-      indicator.id = "loadMoreIndicator";
-      indicator.className = "load-more-indicator";
-      indicator.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 加载更多...';
-      grid.parentElement.appendChild(indicator);
-    }
-    indicator.style.display = "block";
-  } else {
-    if (indicator) indicator.style.display = "none";
-  }
+if (folderModal) {
+  folderModal.addEventListener("click", (e) => {
+    if (e.target === folderModal) closeFolderModal();
+  });
 }
 
 if (filterModal) {
-  const closeBtn = filterModal.querySelector(".filter-modal__close");
-  if (closeBtn) closeBtn.addEventListener("click", closeFilterModal);
-  filterModal.addEventListener("click", (e) => { if (e.target === filterModal) closeFilterModal(); });
+  const filterCloseBtn = filterModal.querySelector(".filter-modal__close");
+  if (filterCloseBtn) filterCloseBtn.addEventListener("click", closeFilterModal);
+  filterModal.addEventListener("click", (e) => {
+    if (e.target === filterModal) closeFilterModal();
+  });
 }
 
-// lightbox controls
 if (lightbox) {
-  const closeBtn = lightbox.querySelector('.lightbox-close');
-  const prevBtn = lightbox.querySelector('.lightbox-prev');
-  const nextBtn = lightbox.querySelector('.lightbox-next');
-
-  if (closeBtn) closeBtn.addEventListener('click', closeLightbox);
-  if (prevBtn) prevBtn.addEventListener('click', lightboxPrev);
-  if (nextBtn) nextBtn.addEventListener('click', lightboxNext);
-
-  lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
-
-  let touchStartX = 0; let touchStartY = 0; let touchStartTime = 0; let lastTap = 0;
-  lightboxImg.addEventListener('touchstart', (e) => {
-    if (e.touches && e.touches.length === 1) {
-      touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; touchStartTime = Date.now();
-    }
-  }, { passive: true });
-  lightboxImg.addEventListener('touchend', (e) => {
-    const dt = Date.now() - touchStartTime;
-    const now = Date.now();
-    if (now - lastTap < 300) { lightboxImg.classList.toggle('zoomed'); lastTap = 0; return; }
-    lastTap = now;
-    if (dt < 500 && e.changedTouches && e.changedTouches.length === 1) {
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      const dy = e.changedTouches[0].clientY - touchStartY;
-      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
-        if (dx < 0) lightboxNext(); else lightboxPrev();
-      }
-    }
-  }, { passive: true });
-
-  lightboxImg.addEventListener('dblclick', (e) => { e.preventDefault(); lightboxImg.classList.toggle('zoomed'); });
-
-  window.addEventListener('keydown', (e) => {
-    const lightboxOpen = lightbox.style.display !== 'none';
-    const modalOpen = filterModal && filterModal.style.display !== 'none';
-    if (e.key === 'Escape') {
-      if (modalOpen) { closeFilterModal(); return; }
-      if (lightboxOpen) closeLightbox();
-    }
-    if (lightboxOpen) {
-      if (e.key === 'ArrowLeft') lightboxPrev();
-      if (e.key === 'ArrowRight') lightboxNext();
-    }
+  const closeBtn = lightbox.querySelector(".lightbox-close");
+  const prevBtn = lightbox.querySelector(".lightbox-prev");
+  const nextBtn = lightbox.querySelector(".lightbox-next");
+  if (closeBtn) closeBtn.addEventListener("click", closeLightbox);
+  if (prevBtn) prevBtn.addEventListener("click", lightboxPrev);
+  if (nextBtn) nextBtn.addEventListener("click", lightboxNext);
+  lightbox.addEventListener("click", (e) => {
+    if (e.target === lightbox) closeLightbox();
   });
 }
 
-// v1/v2 toggle
-(function initV2Toggle() {
-  const btn = document.getElementById('v2ToggleBtn');
-  if (!btn) return;
-  function syncBtn() {
-    btn.classList.toggle('active', useV2);
-    btn.title = useV2 ? '当前在线页面（点击切换为本地）' : '当前本地页面（点击切换为在线）';
-    btn.querySelector('.toggle-label').textContent = useV2 ? '在线' : '本地';
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeFilterModal();
+    closeFolderModal();
+    closeLightbox();
   }
-  syncBtn();
-  btn.addEventListener('click', () => {
+});
+
+if (v2ToggleBtn) {
+  v2ToggleBtn.addEventListener("click", () => {
     useV2 = !useV2;
-    localStorage.setItem('useV2', useV2 ? 'true' : 'false');
-    syncBtn();
+    localStorage.setItem("useV2", useV2 ? "true" : "false");
+    updateVersionToggle();
   });
-})();
+}
 
 load();
-setupInfiniteScroll();
