@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MakerWorld 快速归档助手
 // @namespace    https://makerworld.com.cn/
-// @version      1.0.2
+// @version      1.0.1
 // @description  在 MakerWorld 模型页一键归档，支持后端地址与手动 Cookie 配置
 // @author       sonic
 // @match        https://makerworld.com.cn/zh/models/*

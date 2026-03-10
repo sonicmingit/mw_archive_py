@@ -66,6 +66,13 @@
 
 ### 历史记录
 
+#### 2026-03-10 10:00
+- 版本号：`v5.5.1`
+- 更新说明链接：[`doc/logs/v5.5.1_update_log.md`](./v5.5.1_update_log.md)
+- 本次重点：在线模型支持直接编辑归档内容；首页新增收藏夹功能；首页支持简约显示模式。
+- 同步人：AI（Codex）
+- 备注：同步根 `README.md` 当前版本区块，补充 `v5.5.1` 发布日志与升级说明。
+
 #### 2026-03-09 17:40
 - 版本号：`v5.5.0`
 - 更新说明链接：[`doc/logs/v5.5.0_update_log.md`](./v5.5.0_update_log.md)
@@ -110,6 +117,7 @@
 
 ## 版本日志索引
 
+- [`v5.5.1_update_log.md`](./v5.5.1_update_log.md)
 - [`v5.5.0_update_log.md`](./v5.5.0_update_log.md)
 - [`v5.4.0_update_log.md`](./v5.4.0_update_log.md)
 - [`v5.3_update_log.md`](./v5.3_update_log.md)
