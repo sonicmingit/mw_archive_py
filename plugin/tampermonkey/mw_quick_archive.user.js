@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         MakerWorld 快速归档助手
-// @namespace    https://makerworld.com.cn/
-// @version      1.0.2
-// @description  在 MakerWorld 模型页一键归档，支持后端地址与手动 Cookie 配置
+// @name         快速归档助手
+// @namespace    https://makerworld.com/
+// @version      1.0.3
+// @description  在 MW 模型页一键归档，支持后端地址与手动 Cookie 配置
 // @author       sonic
 // @match        https://makerworld.com.cn/zh/models/*
+// @match        https://makerworld.com/zh/models/*
 // @icon         https://aliyun-wb-h9vflo19he.oss-cn-shanghai.aliyuncs.com/use/makerworld_archive.png
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -26,6 +27,7 @@
   const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
   const BTN_ID = 'mw-quick-archive-btn';
   const MODAL_ID = 'mw-quick-archive-modal';
+  const NOTICE_ID = 'mw-quick-archive-notice';
   const REQUEST_DEDUP_MS = 2000;
   let archiveInFlight = false;
   let lastArchiveAt = 0;
@@ -55,6 +57,55 @@
       // no-op
     }
     console.log(`[MW-ARCHIVER] ${text}`);
+  }
+
+  function showNotice(title, text, tone = 'loading') {
+    const old = document.getElementById(NOTICE_ID);
+    if (old) {
+      try { old.remove(); } catch (_) {}
+    }
+    const overlay = document.createElement('div');
+    overlay.id = NOTICE_ID;
+    overlay.style.cssText = [
+      'position:fixed',
+      'inset:0',
+      'z-index:2147483647',
+      'background:rgba(15,23,42,.4)',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'padding:20px',
+    ].join(';');
+    const colors = tone === 'success'
+      ? { bg: '#ecfeff', border: '#06b6d4', title: '#155e75', text: '#164e63' }
+      : tone === 'error'
+        ? { bg: '#fff1f2', border: '#f43f5e', title: '#9f1239', text: '#881337' }
+        : { bg: '#f0fdf4', border: '#22c55e', title: '#166534', text: '#14532d' };
+    const panel = document.createElement('div');
+    panel.style.cssText = [
+      'width:min(92vw,420px)',
+      `background:${colors.bg}`,
+      `border:3px solid ${colors.border}`,
+      'border-radius:18px',
+      'box-shadow:0 24px 60px rgba(15,23,42,.28)',
+      'padding:22px 24px',
+      'text-align:center',
+      'font-family:system-ui,-apple-system,Segoe UI,Roboto,Microsoft YaHei,sans-serif',
+    ].join(';');
+    panel.innerHTML = `
+      <div style="font-size:24px;font-weight:800;color:${colors.title};margin-bottom:10px;">${title}</div>
+      <div style="font-size:15px;line-height:1.7;color:${colors.text};white-space:pre-wrap;">${text}</div>
+    `;
+    overlay.appendChild(panel);
+    overlay.addEventListener('click', () => {
+      try { overlay.remove(); } catch (_) {}
+    });
+    document.body.appendChild(overlay);
+    setTimeout(() => {
+      if (tone === 'loading') {
+        try { overlay.remove(); } catch (_) {}
+      }
+    }, 1600);
   }
 
   function requestJson(method, url, bodyObj) {
@@ -97,7 +148,7 @@
   }
 
   function ensureModelPage() {
-    return /^https:\/\/makerworld\.com\.cn\/zh\/models\/.+/i.test(location.href);
+    return /^https:\/\/makerworld\.(com|com\.cn)\/zh\/models\/.+/i.test(location.href);
   }
 
   async function syncManualCookieToBackend(cookieText) {
@@ -128,13 +179,16 @@
     }
     const api = getApiBase();
     const url = location.href.split('#')[0];
+    showNotice('开始归档', '当前模型已提交归档，请等待完成提示。', 'loading');
     notify('开始归档模型...');
     try {
       const data = await requestJson('POST', `${api}/api/archive`, { url });
       const msg = data.message || (data.action === 'updated' ? '模型已更新成功' : '模型归档成功');
       notify(`${msg}: ${data.base_name || ''}`);
+      showNotice('归档完成', `${msg}${data.base_name ? `\n${data.base_name}` : ''}`, 'success');
     } catch (err) {
       notify(`归档失败: ${err.message}`);
+      showNotice('归档失败', err.message, 'error');
     } finally {
       archiveInFlight = false;
     }

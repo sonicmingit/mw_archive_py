@@ -86,6 +86,9 @@ h1 {
   background: #00b8d4;
   color: #fff;
   border-color: #00b8d4;
+  font-size: 15px;
+  padding: 13px 12px;
+  width: 100%;
 }
 
 .btn.home:hover {
@@ -106,4 +109,81 @@ h1 {
   font-size: 12px;
   min-height: 36px;
   white-space: pre-wrap;
+}
+
+.popup-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.popup-notice.hidden {
+  display: none;
+}
+
+.popup-notice-card {
+  width: min(92vw, 300px);
+  border-radius: 16px;
+  border: 3px solid #22c55e;
+  background: #f0fdf4;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+  padding: 18px 18px 16px;
+  text-align: center;
+}
+
+.popup-notice[data-tone="success"] .popup-notice-card {
+  border-color: #06b6d4;
+  background: #ecfeff;
+}
+
+.popup-notice[data-tone="error"] .popup-notice-card {
+  border-color: #f43f5e;
+  background: #fff1f2;
+}
+
+.popup-notice-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #166534;
+  margin-bottom: 8px;
+}
+
+.popup-notice[data-tone="success"] .popup-notice-title {
+  color: #155e75;
+}
+
+.popup-notice[data-tone="error"] .popup-notice-title {
+  color: #9f1239;
+}
+
+.popup-notice-text {
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #14532d;
+  margin-bottom: 14px;
+}
+
+.popup-notice[data-tone="success"] .popup-notice-text {
+  color: #164e63;
+}
+
+.popup-notice[data-tone="error"] .popup-notice-text {
+  color: #881337;
+}
+
+.popup-notice-close {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
 }
