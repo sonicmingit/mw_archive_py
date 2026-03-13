@@ -42,6 +42,14 @@ from batch_import_service import (
     scan_batch_import,
 )
 from batch_import_watcher import LocalBatchImportWatcher
+from local_3mf_organizer import (
+    DEFAULT_ORGANIZER_CONFIG,
+    build_runtime_local_3mf_organizer_config,
+    load_state as load_local_3mf_organizer_state,
+    normalize_local_3mf_organizer_config,
+    run_local_3mf_organizer,
+    select_state_for_root,
+)
 from local_model_utils import (
     build_local_model_dir as shared_build_local_model_dir,
     ensure_manual_counter_file as shared_ensure_manual_counter_file,
@@ -78,12 +86,13 @@ DEFAULT_CONFIG = {
         "notify_on_finish": True,
         "duplicate_policy": "skip",
     },
+    "local_3mf_organizer": deepcopy(DEFAULT_ORGANIZER_CONFIG),
     "notifications": {
         "telegram": {
             "enable_push": False,
             "bot_token": "",
             "chat_id": "",
-            "web_base_url": "http://127.0.0.1:8000",
+            "web_base_url": "http://127.0.0.1:8001",
         },
         # 预留其他通知渠道扩展（例如企业微信）
         "wecom": {
@@ -1575,6 +1584,7 @@ def build_runtime_config(raw_cfg: dict) -> dict:
     cfg["cookie_file"] = str((BASE_DIR / raw_cfg.get("cookie_file", "./config/cookie.json")).resolve())
     cfg["logs_dir"] = str((BASE_DIR / raw_cfg.get("logs_dir", "logs")).resolve())
     cfg["local_batch_import"] = build_runtime_batch_import_config(raw_cfg.get("local_batch_import"))
+    cfg["local_3mf_organizer"] = build_runtime_local_3mf_organizer_config(raw_cfg.get("local_3mf_organizer"))
     Path(cfg["download_dir"]).mkdir(parents=True, exist_ok=True)
     Path(cfg["logs_dir"]).mkdir(parents=True, exist_ok=True)
     Path(cfg["cookie_file"]).parent.mkdir(parents=True, exist_ok=True)
@@ -2585,6 +2595,7 @@ async def api_config():
     cookie_store = load_cookie_store(cfg)
     tg = get_telegram_runtime_cfg()
     local_batch = cfg.get("local_batch_import") if isinstance(cfg.get("local_batch_import"), dict) else {}
+    local_organizer = cfg.get("local_3mf_organizer") if isinstance(cfg.get("local_3mf_organizer"), dict) else {}
     return {
         "download_dir": cfg["download_dir"],
         "logs_dir": cfg["logs_dir"],
@@ -2604,6 +2615,10 @@ async def api_config():
             "failed_dir_name": str(local_batch.get("failed_dir_name") or "_failed"),
             "scan_interval_seconds": int(local_batch.get("scan_interval_seconds") or 300),
             "max_parse_workers": int(local_batch.get("max_parse_workers") or 2),
+        },
+        "local_3mf_organizer": {
+            "root_dir": str(local_organizer.get("root_dir") or ""),
+            "mode": str(local_organizer.get("mode") or DEFAULT_ORGANIZER_CONFIG["mode"]),
         },
         "notify": {
             "telegram": {
@@ -2681,6 +2696,54 @@ async def api_save_local_batch_import_config(body: dict):
         "config": local_cfg,
         "runtime": CFG.get("local_batch_import") or {},
     }
+
+
+@app.get("/api/local-3mf-organizer/config")
+async def api_get_local_3mf_organizer_config():
+    raw_cfg = load_raw_config()
+    runtime_cfg = load_config()
+    organizer_state = load_local_3mf_organizer_state()
+    runtime_organizer_cfg = runtime_cfg.get("local_3mf_organizer") if isinstance(runtime_cfg.get("local_3mf_organizer"), dict) else {}
+    root_dir = str(runtime_organizer_cfg.get("root_dir") or "")
+    return {
+        "config": normalize_local_3mf_organizer_config(raw_cfg.get("local_3mf_organizer")),
+        "runtime": runtime_organizer_cfg,
+        "state": select_state_for_root(organizer_state, root_dir),
+    }
+
+
+@app.post("/api/local-3mf-organizer/config")
+async def api_save_local_3mf_organizer_config(body: dict):
+    payload = body or {}
+    incoming = payload.get("local_3mf_organizer") if isinstance(payload.get("local_3mf_organizer"), dict) else payload
+    organizer_cfg = normalize_local_3mf_organizer_config(incoming)
+
+    raw_cfg = load_raw_config()
+    raw_cfg["local_3mf_organizer"] = organizer_cfg
+    save_raw_config(raw_cfg)
+
+    CFG.update(build_runtime_config(raw_cfg))
+    return {
+        "status": "ok",
+        "config": organizer_cfg,
+        "runtime": CFG.get("local_3mf_organizer") or {},
+    }
+
+
+@app.post("/api/local-3mf-organizer/run")
+async def api_run_local_3mf_organizer(body: dict):
+    payload = body or {}
+    cfg_now = load_config()
+    runtime_cfg = cfg_now.get("local_3mf_organizer") if isinstance(cfg_now.get("local_3mf_organizer"), dict) else {}
+    root_dir = str(payload.get("root_dir") or runtime_cfg.get("root_dir") or "").strip()
+    mode = str(payload.get("mode") or runtime_cfg.get("mode") or DEFAULT_ORGANIZER_CONFIG["mode"]).strip().lower()
+    dry_run = bool(payload.get("dry_run", False))
+    try:
+        limit = int(payload.get("limit") or 0)
+    except Exception:
+        limit = 0
+    report = run_local_3mf_organizer(runtime_cfg, root_dir=root_dir, mode=mode, dry_run=dry_run, limit=limit)
+    return report
 
 
 @app.post("/api/local-batch-import/scan")

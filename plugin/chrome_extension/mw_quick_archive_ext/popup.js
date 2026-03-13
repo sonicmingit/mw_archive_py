@@ -18,23 +18,57 @@ async function getActiveTabUrl() {
 }
 
 function isModelUrl(url) {
-  return /^https:\/\/makerworld\.com\.cn\/zh\/models\/.+/i.test(url || "");
+  return /^https:\/\/makerworld\.(com|com\.cn)\/zh\/models\/.+/i.test(url || "");
 }
 
-function getOriginFromApiBase(apiBase) {
-  try {
-    const u = new URL(apiBase);
-    return `${u.protocol}//${u.host}`;
-  } catch (_) {
-    return "";
+let noticeTimer = null;
+
+function showPopupNotice(title, text, tone = "info") {
+  let notice = document.getElementById("popupNotice");
+  if (!notice) {
+    notice = document.createElement("div");
+    notice.id = "popupNotice";
+    notice.className = "popup-notice hidden";
+    notice.innerHTML = `
+      <div class="popup-notice-card">
+        <div id="popupNoticeTitle" class="popup-notice-title"></div>
+        <div id="popupNoticeText" class="popup-notice-text"></div>
+        <button id="popupNoticeClose" class="popup-notice-close" type="button">知道了</button>
+      </div>
+    `;
+    document.body.appendChild(notice);
+    notice.addEventListener("click", (event) => {
+      if (event.target === notice) {
+        hidePopupNotice();
+      }
+    });
+    notice.querySelector("#popupNoticeClose").addEventListener("click", hidePopupNotice);
+  }
+  const titleEl = document.getElementById("popupNoticeTitle");
+  const textEl = document.getElementById("popupNoticeText");
+  titleEl.textContent = title;
+  textEl.textContent = text;
+  notice.dataset.tone = tone;
+  notice.classList.remove("hidden");
+  if (noticeTimer) {
+    clearTimeout(noticeTimer);
+    noticeTimer = null;
+  }
+  if (tone === "loading") {
+    noticeTimer = setTimeout(() => {
+      hidePopupNotice();
+    }, 1600);
   }
 }
 
-function setOpenLocalEnabled(url) {
-  const btn = document.getElementById("openLocalBtn");
-  if (!btn) return;
-  btn.disabled = !url;
-  btn.dataset.url = url || "";
+function hidePopupNotice() {
+  const notice = document.getElementById("popupNotice");
+  if (!notice) return;
+  notice.classList.add("hidden");
+  if (noticeTimer) {
+    clearTimeout(noticeTimer);
+    noticeTimer = null;
+  }
 }
 
 async function init() {
@@ -42,7 +76,6 @@ async function init() {
   if (res && res.ok) {
     document.getElementById("apiBase").value = res.apiBase || "";
   }
-  setOpenLocalEnabled("");
   setStatus("准备就绪");
 }
 
@@ -80,17 +113,6 @@ document.getElementById("testConnBtn").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("syncCookieBtn").addEventListener("click", async () => {
-  setStatus("正在同步 Cookie...");
-  const res = await send({ action: "syncCookie" });
-  if (res && res.ok) {
-    const cf = res.hasCfClearance ? "含 cf_clearance" : "未含 cf_clearance";
-    setStatus(`${res.message} (项数: ${res.count}, 来源: ${res.source}, ${cf})`);
-  } else {
-    setStatus((res && res.message) || "同步失败");
-  }
-});
-
 document.getElementById("openHomeBtn").addEventListener("click", async () => {
   const inputVal = normalizeApiBase(document.getElementById("apiBase").value);
   let apiBase = inputVal;
@@ -105,34 +127,23 @@ document.getElementById("openHomeBtn").addEventListener("click", async () => {
   await chrome.tabs.create({ url: apiBase });
 });
 
-document.getElementById("openLocalBtn").addEventListener("click", async () => {
-  const url = document.getElementById("openLocalBtn").dataset.url || "";
-  if (!url) {
-    setStatus("暂无可打开的本地模型地址");
-    return;
-  }
-  await chrome.tabs.create({ url });
-});
-
 document.getElementById("archiveBtn").addEventListener("click", async () => {
   const url = await getActiveTabUrl();
   if (!isModelUrl(url)) {
     setStatus("当前标签不是 MakerWorld 模型页");
     return;
   }
+  showPopupNotice("开始归档", "已开始归档当前模型，请等待完成提示。", "loading");
   setStatus("正在归档...");
   const res = await send({ action: "archiveModel", url });
   if (res && res.ok) {
     const base = res.data && res.data.base_name ? `\n${res.data.base_name}` : "";
-    const apiBaseRes = await send({ action: "getApiBase" });
-    const apiBase = apiBaseRes && apiBaseRes.ok ? apiBaseRes.apiBase : "";
-    const origin = getOriginFromApiBase(apiBase);
-    const baseName = res.data && res.data.base_name ? res.data.base_name : "";
-    const localUrl = origin && baseName ? `${origin}/v2/files/${encodeURIComponent(baseName)}` : "";
-    setOpenLocalEnabled(localUrl);
-    setStatus(`${res.message}${base}${localUrl ? `\n本地: ${localUrl}` : ""}`);
+    setStatus(`${res.message}${base}`);
+    showPopupNotice("归档完成", `${res.message}${base}`, "success");
   } else {
-    setStatus((res && res.message) || "归档失败");
+    const message = (res && res.message) || "归档失败";
+    setStatus(message);
+    showPopupNotice("归档失败", message, "error");
   }
 });
 

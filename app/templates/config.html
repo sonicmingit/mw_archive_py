@@ -231,6 +231,49 @@
             </button>
           </div>
         </div>
+
+        <div class="form-section">
+          <h3>本地 3MF 整理</h3>
+
+          <div class="info-box">
+            <i class="fas fa-boxes-stacked"></i>
+            <div class="info-box-content">
+              <div class="info-box-title">功能说明</div>
+              <div class="info-box-text">
+                扫描固定目录下的 `3MF` 文件，按模型自动整理到“整理完成 / 重复文件 / 整理失败 / 整理报告”目录。<br>
+                有 `DesignModelId` 的模型目录会命名为 `MW_作者名_模型名`，没有 `DesignModelId` 的会命名为 `Others_作者名_模型名`。
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">整理目录</label>
+              <input type="text" id="local3mfOrganizerRootDir" class="form-input" placeholder="./organize">
+              <div class="text-muted text-small mt-sm">相对路径会按 `app/` 目录解析，Docker 推荐单独映射到宿主机目录。</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">处理模式</label>
+              <select id="local3mfOrganizerMode" class="form-input">
+                <option value="move">移动源文件</option>
+                <option value="copy">复制源文件</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="text-muted text-small mt-sm" id="local3mfOrganizerResolvedDir">运行时目录: -</div>
+          <div class="text-muted text-small mt-sm" id="local3mfOrganizerLastRun">最近整理记录: -</div>
+          <div class="text-muted text-small mt-sm" id="local3mfOrganizerLastReport">最近报告: -</div>
+
+          <div class="table-actions mt-lg">
+            <button class="btn btn-primary" type="button" onclick="saveLocal3mfOrganizerConfig()">
+              <i class="fas fa-save"></i> 保存整理配置
+            </button>
+            <button class="btn btn-secondary" type="button" onclick="runLocal3mfOrganizer()">
+              <i class="fas fa-play"></i> 开始整理
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Tab Content: Missing -->
@@ -651,6 +694,7 @@
       renderCookieGroups((data && data.cookie_store) || {});
       await loadNotifyConfig();
       await loadLocalBatchConfig();
+      await loadLocal3mfOrganizerConfig();
     }
 
     async function loadNotifyConfig() {
@@ -739,6 +783,95 @@
         const err = await res.text();
         appendLog('保存本地批量导入监控配置失败: ' + err);
         alert('保存失败: ' + err);
+      }
+    }
+
+    function formatOrganizerRecordText(record) {
+      const item = record && typeof record === 'object' ? record : {};
+      const runAt = formatDateTimeText(item.last_run_at || item.generated_at || '');
+      const scannedFiles = Number(item.last_scanned_files || item.scanned_files || 0);
+      const organizedModels = Number(item.last_organized_models || item.organized_models || 0);
+      const organizedConfigs = Number(item.last_organized_configs || item.organized_configs || 0);
+      const duplicates = Number(item.last_duplicate_count || item.duplicate_count || 0);
+      const failed = Number(item.last_failed_count || item.failed_count || 0);
+      const durationText = item.last_duration_text || item.duration_text || formatDurationText(item.last_duration_seconds || item.duration_seconds || 0);
+      const mode = String(item.last_mode || item.mode || '').trim();
+      const modeText = mode === 'copy' ? '复制' : (mode === 'move' ? '移动' : mode);
+      return [
+        runAt,
+        modeText ? `模式 ${modeText}` : '',
+        `扫描 ${scannedFiles}`,
+        `模型 ${organizedModels}`,
+        `配置 ${organizedConfigs}`,
+        `重复 ${duplicates}`,
+        `失败 ${failed}`,
+        durationText ? `耗时 ${durationText}` : ''
+      ].filter(Boolean).join('，');
+    }
+
+    async function loadLocal3mfOrganizerConfig() {
+      const res = await fetch('/api/local-3mf-organizer/config');
+      if (!res.ok) return;
+      const data = await res.json();
+      const cfg = (data && data.config) || {};
+      const runtime = (data && data.runtime) || {};
+      const state = (data && data.state) || {};
+      document.getElementById('local3mfOrganizerRootDir').value = cfg.root_dir || './organize';
+      document.getElementById('local3mfOrganizerMode').value = cfg.mode || 'move';
+      document.getElementById('local3mfOrganizerResolvedDir').textContent = '运行时目录: ' + (runtime.root_dir || '-');
+      document.getElementById('local3mfOrganizerLastRun').textContent = state.last_run_at
+        ? `最近整理记录: ${formatOrganizerRecordText(state)}`
+        : '最近整理记录: -';
+      document.getElementById('local3mfOrganizerLastReport').textContent = '最近报告: ' + (state.last_report_path || '-');
+    }
+
+    async function saveLocal3mfOrganizerConfig() {
+      const payload = {
+        local_3mf_organizer: {
+          root_dir: (document.getElementById('local3mfOrganizerRootDir').value || '').trim() || './organize',
+          mode: (document.getElementById('local3mfOrganizerMode').value || 'move').trim()
+        }
+      };
+      appendLog('保存本地 3MF 整理配置...');
+      const res = await fetch('/api/local-3mf-organizer/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        appendLog('本地 3MF 整理配置已保存');
+        await loadLocal3mfOrganizerConfig();
+        alert('本地 3MF 整理配置已保存');
+      } else {
+        const err = await res.text();
+        appendLog('保存本地 3MF 整理配置失败: ' + err);
+        alert('保存失败: ' + err);
+      }
+    }
+
+    async function runLocal3mfOrganizer() {
+      const rootDir = (document.getElementById('local3mfOrganizerRootDir').value || '').trim() || './organize';
+      const mode = (document.getElementById('local3mfOrganizerMode').value || 'move').trim();
+      if (!confirm('将按当前配置开始整理目录中的 3MF 文件，是否继续？')) return;
+      appendLog('开始整理本地 3MF 目录...');
+      const res = await fetch('/api/local-3mf-organizer/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          root_dir: rootDir,
+          mode
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        appendLog(`本地 3MF 整理完成：扫描 ${data.scanned_files}，模型 ${data.organized_models}，配置 ${data.organized_configs}，重复 ${data.duplicate_count}，失败 ${data.failed_count}，耗时 ${data.duration_text}`);
+        if (data.report_path) appendLog('报告文件: ' + data.report_path);
+        await loadLocal3mfOrganizerConfig();
+        alert(`本地 3MF 整理完成\n扫描 ${data.scanned_files}，模型 ${data.organized_models}，配置 ${data.organized_configs}，重复 ${data.duplicate_count}，失败 ${data.failed_count}\n耗时 ${data.duration_text}`);
+      } else {
+        const err = await res.text();
+        appendLog('本地 3MF 整理失败: ' + err);
+        alert('本地 3MF 整理失败: ' + err);
       }
     }
 

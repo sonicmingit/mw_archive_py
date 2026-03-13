@@ -5,17 +5,21 @@
 一个面向本地模型管理的工具，支持模型归档、本地 3MF 解析导入、模型库浏览与维护。
 
 ## 当前版本
-- `v5.5.1`
-- 更新说明见 [doc/logs/v5.5.1_update_log.md](doc/logs/v5.5.1_update_log.md)
+- `v5.5.2`
+- 更新说明见 [doc/logs/v5.5.2_update_log.md](doc/logs/v5.5.2_update_log.md)
 - 本次重点：
-  - 在线模型支持直接编辑归档内容；
-  - 首页新增收藏夹功能；
-  - 首页支持简约显示模式。
+  - 配置页新增本地 3MF 整理入口；
+  - 支持固定目录一键整理、重复文件分离与耗时统计；
+  - Docker 新增独立整理目录挂载；
+  - Chrome 插件与油猴脚本支持国际站模型页归档，扩展入口同步精简并增加明显归档提示。
+- 升级提醒：
+  - 如果你使用 Docker 部署，升级到 `v5.5.2` 后需要新增目录映射：`-v $PWD/app/organize:/app/organize`
 
 ## 核心能力
 - 支持本地上传 3MF 后自动解析并入库，快速建立个人模型库
 - 支持本地 `3MF` 目录批量导入，自动识别同模型不同配置并聚合到同一个 `LocalModel_*`
 - 支持监控目录定时扫描，自动移动已处理文件并输出批量导入汇总
+- 支持固定目录一键整理本地 `3MF` 文件，按模型归类、按配置重命名，并分离重复文件
 - 支持模型库浏览、搜索、筛选与状态标记（如收藏、已打印）
 - 支持手动导入本地模型与附件管理，便于整理历史文件
 - 支持缺失文件记录与重试机制，降低导入失败后的手工处理成本
@@ -40,6 +44,7 @@ mw_archive/
 │  │  └─ local_batch_import_state.json
 │  ├─ data/
 │  ├─ logs/
+│  ├─ organize/
 │  ├─ static/
 │  ├─ templates/
 │  └─ watch/
@@ -88,11 +93,13 @@ python server.py
 - `app/logs`
 - `app/config`
 - `app/watch`
+- `app/organize`
 
 注意：
 - `app/config` 现在是推荐挂载项；
 - 即使这个目录是空的，容器首次启动后也会自动生成默认配置文件；
 - `app/watch` 用于本地批量导入监控目录，推荐单独挂载到宿主机；
+- `app/organize` 用于本地 3MF 整理目录，推荐单独挂载到宿主机；
 
 ### 直接拉取
 ```bash
@@ -104,6 +111,7 @@ python server.py
   -v $PWD/app/logs:/app/logs \
   -v $PWD/app/config:/app/config \
   -v $PWD/app/watch:/app/watch \
+  -v $PWD/app/organize:/app/organize \
   sonicming/mw-archiver:latest
 ```
 
@@ -120,6 +128,7 @@ docker run -d \
   -v $PWD/app/logs:/app/logs \
   -v $PWD/app/config:/app/config \
   -v $PWD/app/watch:/app/watch \
+  -v $PWD/app/organize:/app/organize \
   mw-archiver
 ```
 
@@ -131,6 +140,7 @@ docker run -d \
 - `-v $PWD/app/logs:/app/logs`：持久化日志目录，便于排查失败、缺失下载等问题。
 - `-v $PWD/app/config:/app/config`：持久化配置目录，保存通知配置、Cookie 配置、模型库状态配置。空目录也可自动初始化。
 - `-v $PWD/app/watch:/app/watch`：持久化本地批量导入监控目录，适合宿主机直接投放 `3MF` 文件。
+- `-v $PWD/app/organize:/app/organize`：持久化本地 3MF 整理目录，适合配置页点击“开始整理”后统一处理。
 - `sonicming/mw-archiver:latest`：使用的镜像及版本标签。
 
 ## Docker Compose 启动
@@ -150,6 +160,7 @@ services:
       - ./app/logs:/app/logs
       - ./app/config:/app/config
       - ./app/watch:/app/watch
+      - ./app/organize:/app/organize
     restart: unless-stopped
 ```
 
@@ -170,6 +181,7 @@ docker-compose up -d
 - [app/config/cookie.json](app/config/cookie.json)
 - [app/config/gallery_flags.json](app/config/gallery_flags.json)
 - [app/config/local_batch_import_state.json](app/config/local_batch_import_state.json)
+- `app/config/local_3mf_organizer_state.json`（运行后自动生成）
 
 `config.json` 示例：
 
@@ -187,6 +199,10 @@ docker-compose up -d
     "max_parse_workers": 2,
     "notify_on_finish": true,
     "duplicate_policy": "skip"
+  },
+  "local_3mf_organizer": {
+    "root_dir": "./organize",
+    "mode": "move"
   },
   "notifications": {
     "telegram": {
@@ -222,6 +238,25 @@ docker-compose up -d
 - 少量文件：手动导入弹窗里直接“选择目录批量导入”
 - 大量文件：先把文件放进 `watch` 目录，再到配置页手动点击“立即扫描并导入”
 - 如果是 Docker 部署，推荐把宿主机目录映射到 `app/watch`
+
+### 本地 3MF 整理
+- 固定整理目录默认是 `app/organize/`
+- 入口在配置页“其他功能”中的“本地 3MF 整理”
+- 配置项包括：
+  - 整理目录
+  - 处理模式：`move` / `copy`
+- 点击“开始整理”后会在目标目录下自动生成：
+  - `整理完成/`
+  - `重复文件/`
+  - `整理失败/`
+  - `整理报告/`
+- 模型目录命名规则：
+  - 有 `DesignModelId`：`MW_<作者名>_<模型名>`
+  - 无 `DesignModelId`：`Others_<作者名>_<模型名>`
+  - 若缺少作者信息，则不拼接作者段
+- 配置文件命名优先使用 `ProfileTitle`，若标题过弱则回退到原始文件名
+- 配置页会显示最近一次整理记录、耗时和最近报告路径
+- Docker 部署时建议把宿主机目录映射到 `app/organize`
 
 ### 国内 / 国际平台 Cookie
 `cookie.json` 当前按平台分组：

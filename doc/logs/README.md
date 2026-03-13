@@ -66,6 +66,13 @@
 
 ### 历史记录
 
+#### 2026-03-13 16:55
+- 版本号：`v5.5.2`
+- 更新说明链接：[`doc/logs/v5.5.2_update_log.md`](./v5.5.2_update_log.md)
+- 本次重点：配置页新增本地 3MF 整理入口；支持固定目录一键整理、重复文件分离与耗时统计；Docker 新增独立整理目录挂载；Chrome 插件与油猴脚本支持国际站模型页归档。
+- 同步人：AI（Codex）
+- 备注：同步根 `README.md` 当前版本区块，补充 `v5.5.2` 发布日志、Docker / 配置说明以及插件支持说明。
+
 #### 2026-03-10 10:00
 - 版本号：`v5.5.1`
 - 更新说明链接：[`doc/logs/v5.5.1_update_log.md`](./v5.5.1_update_log.md)
@@ -117,6 +124,7 @@
 
 ## 版本日志索引
 
+- [`v5.5.2_update_log.md`](./v5.5.2_update_log.md)
 - [`v5.5.1_update_log.md`](./v5.5.1_update_log.md)
 - [`v5.5.0_update_log.md`](./v5.5.0_update_log.md)
 - [`v5.4.0_update_log.md`](./v5.4.0_update_log.md)

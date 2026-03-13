@@ -55,6 +55,8 @@ cookie.txt
 app/config.json
 app/config/*.json
 watch/
+app/organize/*
+!app/organize/.gitkeep
 
 
 # Temporary files
