@@ -66,6 +66,13 @@
 
 ### 历史记录
 
+#### 2026-03-19 18:30
+- 版本号：`v5.6.0`
+- 更新说明链接：[`doc/logs/v5.6.0_update_log.md`](./v5.6.0_update_log.md)
+- 本次重点：首页图库列表改为索引读取；新增“刷新索引”按钮；归档、导入、编辑、删除后自动增量更新索引；首次建索引可能略慢但后续加载会明显提速。
+- 同步人：AI（Codex）
+- 备注：同步根 `README.md` 当前版本区块，强调首次打开会建立索引缓存，后续列表加载速度显著提升。
+
 #### 2026-03-13 16:55
 - 版本号：`v5.5.2`
 - 更新说明链接：[`doc/logs/v5.5.2_update_log.md`](./v5.5.2_update_log.md)
@@ -124,6 +131,7 @@
 
 ## 版本日志索引
 
+- [`v5.6.0_update_log.md`](./v5.6.0_update_log.md)
 - [`v5.5.2_update_log.md`](./v5.5.2_update_log.md)
 - [`v5.5.1_update_log.md`](./v5.5.1_update_log.md)
 - [`v5.5.0_update_log.md`](./v5.5.0_update_log.md)
