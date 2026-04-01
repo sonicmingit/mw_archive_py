@@ -1,0 +1,93 @@
+/* ===== Base Reset ===== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; scroll-behavior: smooth; }
+#app { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb { background: #475569; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ===== Glass Morphism ===== */
+.glass {
+    background: rgba(249, 249, 249, 0.82);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+.dark .glass {
+    background: rgba(30, 41, 59, 0.82);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+
+/* ===== CTA Gradient ===== */
+.btn-primary-gradient {
+    background: linear-gradient(135deg, #52C963 0%, #006e25 100%);
+    color: white;
+    transition: opacity 0.2s ease, transform 0.15s ease;
+}
+.btn-primary-gradient:hover { opacity: 0.92; }
+.btn-primary-gradient:active { transform: scale(0.98); }
+
+/* ===== Page Transitions ===== */
+.page-enter-active,
+.page-leave-active {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.page-enter-from { opacity: 0; transform: translateY(8px); }
+.page-leave-to { opacity: 0; transform: translateY(-4px); }
+
+/* ===== Skeleton Shimmer ===== */
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+.skeleton {
+    background: linear-gradient(90deg, #eeeeee 25%, #e2e2e2 50%, #eeeeee 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 0.5rem;
+}
+.dark .skeleton {
+    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background-size: 200% 100%;
+}
+
+/* ===== Toast ===== */
+.toast-enter-active { animation: toast-in 0.3s ease forwards; }
+.toast-leave-active { animation: toast-out 0.25s ease forwards; }
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(16px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+/* ===== Tag Chip ===== */
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 0.375rem;
+}
+
+/* ===== Ghost Border (Accessibility Focus Input) ===== */
+input:focus, textarea:focus, select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #52C963;
+}
+
+/* ===== Image Matte ===== */
+.img-matte {
+    padding: 0.35rem;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}

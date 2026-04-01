@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创客档案 - MakerWorld Archive</title>
+    <meta name="description" content="MakerWorld 3D模型本地存档与管理平台">
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Vue 3 CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+    <!-- Vue Router CDN -->
+    <script src="https://unpkg.com/vue-router@4/dist/vue-router.global.prod.js"></script>
+
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+    <!-- Tailwind Config -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary:      '#52C963',
+                        primaryDark:  '#006e25',
+                        primaryHover: '#3da54d',
+                        surface:      '#f9f9f9',
+                        surfaceLow:   '#f3f3f4',
+                        surfaceMid:   '#eeeeee',
+                        surfaceHigh:  '#e8e8e8',
+                        surfaceTop:   '#e2e2e2',
+                        onSurface:    '#1a1c1c',
+                        onSurfaceVar: '#3e4a3c',
+                        outline:      '#6e7a6b',
+                        outlineVar:   '#bdcab9',
+                        dBg:          '#0f172a',
+                        dCard:        '#1e293b',
+                        dBorder:      '#334155',
+                        dInput:       '#020617',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'ambient': '0 16px 32px rgba(26,28,28,0.04)',
+                        'ambient-lg': '0 24px 48px rgba(26,28,28,0.06)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body class="bg-surface dark:bg-dBg text-onSurface dark:text-slate-50 antialiased transition-colors duration-300">
+    <div id="app"></div>
+
+    <!-- Application Scripts -->
+    <script src="./js/api.js"></script>
+    <script src="./js/components.js"></script>
+    <script src="./js/views.js"></script>
+    <script src="./js/app.js"></script>
+</body>
+</html>

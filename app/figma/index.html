@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>本地模型库 · Figma 还原</title>
+    <meta name="description" content="MakerWorld Archive Figma prototype">
+    <script>
+        (function () {
+            try {
+                var theme = localStorage.getItem('mw_figma_theme') || 'dark';
+                document.documentElement.classList.toggle('dark', theme !== 'light');
+                document.documentElement.classList.toggle('light-theme', theme === 'light');
+            } catch (_) {}
+        })();
+    </script>
+    <link rel="icon" type="image/png" href="./fav.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/vue-router@4/dist/vue-router.global.prod.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        page: '#141414',
+                        panel: '#1f1f1f',
+                        panelSoft: '#252525',
+                        panelHard: '#2e2e2e',
+                        borderSoft: '#30363d',
+                        borderStrong: '#414141',
+                        textMain: '#f3f4f6',
+                        textMuted: '#a1a1aa',
+                        cyan: '#11c5e8',
+                        green: '#2faa53',
+                        red: '#bf3b31',
+                        amber: '#e5b93c'
+                    },
+                    boxShadow: {
+                        card: '0 14px 30px rgba(0,0,0,0.28)',
+                        glow: '0 0 0 1px rgba(17,197,232,0.2), 0 14px 30px rgba(0,0,0,0.25)'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        };
+    </script>
+    <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body class="bg-page text-textMain font-sans">
+    <div id="app"></div>
+    <script src="./js/api.js"></script>
+    <script src="./js/components.js"></script>
+    <script src="./js/views.js"></script>
+    <script src="./js/app.js"></script>
+</body>
+</html>
