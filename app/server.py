@@ -70,6 +70,7 @@ from local_model_utils import (
 from tg_push import TelegramPushService, extract_makerworld_model_url
 
 BASE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = BASE_DIR.parent if (BASE_DIR.parent / "h5").exists() else BASE_DIR
 CONFIG_DIR = BASE_DIR / "config"
 VERSION_FILE_CANDIDATES = [
     BASE_DIR / "version.yml",
@@ -82,6 +83,8 @@ LEGACY_GALLERY_FLAGS_PATH = BASE_DIR / "gallery_flags.json"
 LEGACY_COOKIE_PATH = BASE_DIR / "cookie.txt"
 TMP_DIR = BASE_DIR / "tmp"
 MANUAL_DRAFT_ROOT = TMP_DIR / "manual_drafts"
+H5_DIR = PROJECT_DIR / "h5"
+H5_DIST_DIR = H5_DIR / "dist"
 DEFAULT_CONFIG = {
     "download_dir": "./data",
     "cookie_file": "./config/cookie.json",
@@ -2862,6 +2865,26 @@ def mobile_join_model_file_url_safe(model_dir: str, rel_path: str) -> str:
     return f"/files/{encoded_model}/{encoded_rel}"
 
 
+def mobile_join_model_download_url(model_dir: str, rel_path: str) -> str:
+    model_name = str(model_dir or "").strip()
+    rel = str(rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if not model_name or not rel:
+        return ""
+    encoded_model = quote(model_name, safe="")
+    encoded_rel = "/".join(quote(part, safe="") for part in rel.split("/") if part)
+    return f"/api/models/{encoded_model}/file/{encoded_rel}"
+
+
+def mobile_join_instance_download_url(model_dir: str, instance_id) -> str:
+    model_name = str(model_dir or "").strip()
+    inst_id = str(instance_id or "").strip()
+    if not model_name or not inst_id:
+        return ""
+    encoded_model = quote(model_name, safe="")
+    encoded_inst = quote(inst_id, safe="")
+    return f"/api/models/{encoded_model}/instances/{encoded_inst}/download"
+
+
 def mobile_model_root(model_dir: str, model_root: Optional[Path] = None) -> Path:
     if isinstance(model_root, Path):
         return model_root.resolve()
@@ -3135,6 +3158,7 @@ def build_mobile_model_detail_payload(model_dir: str) -> dict:
             "id": str(inst.get("id") or "").strip(),
             "name": str(inst.get("title") or inst.get("name") or f"配置 {len(detail_instances) + 1}").strip(),
             "image": mobile_pick_image_url(model_dir, inst.get("image") or inst.get("cover") or picture_value, model_root=target),
+            "downloadUrl": mobile_join_instance_download_url(model_dir, inst.get("id")),
             "time": mobile_format_duration_text(inst.get("time") or inst.get("printTime") or inst.get("prediction")),
             "weight": mobile_format_number_text(inst.get("weight"), "g"),
             "material": str(inst.get("material") or inst.get("filamentType") or "").strip(),
@@ -3148,17 +3172,22 @@ def build_mobile_model_detail_payload(model_dir: str) -> dict:
     for raw_file in list_files_in_dir(target / "file", image_only=False):
         if isinstance(raw_file, dict):
             name = str(raw_file.get("name") or raw_file.get("title") or "").strip()
-            url = str(raw_file.get("url") or raw_file.get("href") or "").strip()
+            rel_path = str(raw_file.get("relPath") or raw_file.get("path") or raw_file.get("filePath") or "").strip()
         else:
             name = str(raw_file or "").strip()
-            url = ""
+            rel_path = name
         if not name:
             continue
+        rel_path = mobile_find_existing_rel_path(model_dir, rel_path or f"file/{name}", "file", target)
+        preview_url = mobile_join_model_file_url_safe(model_dir, rel_path)
+        download_url = mobile_join_model_download_url(model_dir, rel_path)
         attachments.append({
             "id": name,
             "name": name,
             "type": mobile_guess_attachment_type(name),
-            "url": url,
+            "url": download_url,
+            "previewUrl": preview_url,
+            "downloadUrl": download_url,
         })
 
     return {
@@ -3451,6 +3480,31 @@ async def shutdown_events():
 @app.get("/")
 async def gallery_page():
     return FileResponse(BASE_DIR / "templates" / "gallery.html")
+
+
+def _resolve_h5_dist_file(path: str = "") -> Path:
+    if not H5_DIST_DIR.exists():
+        raise HTTPException(404, "h5/dist 不存在，请先在 h5 目录执行 npm run build")
+    clean_path = str(path or "").strip().lstrip("/")
+    if not clean_path:
+        target = H5_DIST_DIR / "index.html"
+    else:
+        target = (H5_DIST_DIR / Path(clean_path)).resolve()
+        if not str(target).startswith(str(H5_DIST_DIR.resolve())):
+            raise HTTPException(400, "非法路径")
+    if target.is_file():
+        return target
+    return H5_DIST_DIR / "index.html"
+
+
+@app.get("/h5")
+async def h5_page():
+    return FileResponse(_resolve_h5_dist_file())
+
+
+@app.get("/h5/{path:path}")
+async def h5_page_with_path(path: str):
+    return FileResponse(_resolve_h5_dist_file(path))
 
 
 @app.get("/config")

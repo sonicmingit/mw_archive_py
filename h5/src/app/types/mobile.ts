@@ -88,6 +88,8 @@ export interface MobileAttachment {
   name: string;
   type: '3mf' | 'stl' | 'pdf' | 'image' | 'file';
   url?: string;
+  previewUrl?: string;
+  downloadUrl?: string;
 }
 
 export interface MobilePlate {
@@ -103,6 +105,7 @@ export interface MobileInstance {
   id: string;
   name: string;
   image?: string;
+  downloadUrl?: string;
   time: string;
   weight: string;
   material: string;

@@ -103,6 +103,21 @@ export function ModelDetail() {
     return [instance.printer, instance.layerHeight, instance.material].map((item) => (item || '').trim()).filter(Boolean);
   };
 
+  const triggerDownload = (url?: string) => {
+    const targetUrl = (url || '').trim();
+    if (!targetUrl) {
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = targetUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const getFileIcon = (type: string) => {
     switch(type) {
       case '3mf': return <FileBox size={24} className="text-indigo-500" />;
@@ -298,8 +313,8 @@ export function ModelDetail() {
                     {file.type === 'image' && (
                       <button
                         onClick={() => {
-                          if (file.url) {
-                            window.open(file.url, '_blank', 'noopener,noreferrer');
+                          if (file.previewUrl || file.url) {
+                            window.open(file.previewUrl || file.url, '_blank', 'noopener,noreferrer');
                           }
                         }}
                         className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 bg-slate-50 hover:bg-slate-100 active:scale-95 transition-all"
@@ -309,10 +324,9 @@ export function ModelDetail() {
                     )}
                     <button
                       onClick={() => {
-                        if (file.url) {
-                          window.open(file.url, '_blank', 'noopener,noreferrer');
-                        }
+                        triggerDownload(file.downloadUrl || file.url);
                       }}
+                      disabled={!(file.downloadUrl || file.url)}
                       className="w-8 h-8 rounded-full flex items-center justify-center text-blue-500 bg-blue-50 hover:bg-blue-100 active:scale-95 transition-all"
                     >
                       <FileDown size={16} />
@@ -375,6 +389,13 @@ export function ModelDetail() {
                       <div className="font-semibold text-slate-700">{renderMetricText(selectedInstance.weight)}</div>
                     </div>
                   </div>
+                  <button
+                    onClick={() => triggerDownload(selectedInstance.downloadUrl)}
+                    disabled={!selectedInstance.downloadUrl}
+                    className="mt-3 w-full rounded-xl bg-blue-600 text-white font-semibold py-2.5 flex items-center justify-center gap-2 disabled:bg-slate-200 disabled:text-slate-400 active:scale-[0.98] transition-all"
+                  >
+                    <FileDown size={16} /> 下载模型
+                  </button>
                 </div>
               </div>
 
