@@ -53,6 +53,8 @@ data*/
 *.json
 cookie.txt
 !config.json
+!h5/package.json
+!h5/package-lock.json
 app/config.json
 app/config/*.json
 watch/
