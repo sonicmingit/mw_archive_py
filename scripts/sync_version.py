@@ -98,6 +98,9 @@ def main() -> int:
     # 3) 执行同步，并记录发生变更的文件
     for rel, fn, version in targets:
         abs_path = REPO_ROOT / rel
+        if not abs_path.exists():
+            print(f"Skip missing target: {rel}")
+            continue
         if fn(abs_path, version):
             changed.append(rel)
 

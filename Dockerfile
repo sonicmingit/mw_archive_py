@@ -1,3 +1,12 @@
+FROM node:20-slim AS h5-builder
+
+WORKDIR /web
+
+COPY h5/package*.json ./
+RUN npm install
+COPY h5/ ./
+RUN npm run build
+
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -11,6 +20,7 @@ RUN apt-get update \
 COPY app/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ .
+COPY --from=h5-builder /web/dist ./h5/dist
 
 # 准备默认数据/日志/配置/监控/整理目录（可通过挂载覆盖）
 RUN mkdir -p /app/data /app/logs /app/config /app/watch /app/organize

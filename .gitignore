@@ -79,3 +79,7 @@ npm-debug.log
 .env
 .env.local
 .codex/environments/environment.toml
+
+# h5
+
+h5/src/imports/

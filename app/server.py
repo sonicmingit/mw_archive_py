@@ -11,7 +11,7 @@ from html import escape as escape_html
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 import requests
 import uvicorn
@@ -70,6 +70,7 @@ from local_model_utils import (
 from tg_push import TelegramPushService, extract_makerworld_model_url
 
 BASE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = BASE_DIR.parent if (BASE_DIR.parent / "h5").exists() else BASE_DIR
 CONFIG_DIR = BASE_DIR / "config"
 VERSION_FILE_CANDIDATES = [
     BASE_DIR / "version.yml",
@@ -82,6 +83,8 @@ LEGACY_GALLERY_FLAGS_PATH = BASE_DIR / "gallery_flags.json"
 LEGACY_COOKIE_PATH = BASE_DIR / "cookie.txt"
 TMP_DIR = BASE_DIR / "tmp"
 MANUAL_DRAFT_ROOT = TMP_DIR / "manual_drafts"
+H5_DIR = PROJECT_DIR / "h5"
+H5_DIST_DIR = H5_DIR / "dist"
 DEFAULT_CONFIG = {
     "download_dir": "./data",
     "cookie_file": "./config/cookie.json",
@@ -1370,6 +1373,16 @@ def parse_iso_datetime(value: str) -> Optional[datetime]:
         return datetime.fromisoformat(text)
     except Exception:
         return None
+
+
+def format_mobile_datetime(value: str) -> str:
+    dt = parse_iso_datetime(value)
+    if not dt:
+        return str(value or "").strip()
+    now = datetime.now()
+    if dt.year == now.year:
+        return dt.strftime("%m-%d %H:%M:%S")
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _normalize_cookie_store(data) -> tuple[dict, bool]:
@@ -2670,6 +2683,617 @@ def rebuild_gallery_index_report() -> dict:
     }
 
 
+def mobile_source_label(value: str) -> str:
+    text = str(value or "").strip()
+    lowered = text.lower()
+    if lowered in {"mw_cn", "mw_global", "makerworld"}:
+        return "MakerWorld"
+    if lowered == "printables":
+        return "Printables"
+    if lowered == "thingiverse":
+        return "Thingiverse"
+    if lowered == "localmodel":
+        return "LocalModel"
+    if lowered == "others":
+        return "Others"
+    return text or "未知来源"
+
+
+def mobile_pick_author(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    author = payload.get("author")
+    if isinstance(author, dict):
+        return str(author.get("name") or author.get("title") or "").strip()
+    return str(author or payload.get("designer") or "").strip()
+
+
+def mobile_pick_folder_names(flags: dict, model_dir: str) -> List[str]:
+    names = []
+    folders = flags.get("folders") if isinstance(flags, dict) else []
+    for folder in folders if isinstance(folders, list) else []:
+        if not isinstance(folder, dict):
+            continue
+        members = folder.get("modelDirs")
+        if not isinstance(members, list):
+            members = folder.get("items")
+        members = members if isinstance(members, list) else []
+        if model_dir in [str(item or "").strip() for item in members]:
+            name = str(folder.get("name") or "").strip()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def mobile_pick_instance_count(item: dict) -> int:
+    instances = item.get("instances") if isinstance(item, dict) else None
+    if isinstance(instances, list):
+        return len(instances)
+    try:
+        return max(int(item.get("instanceCount") or 0), 0)
+    except Exception:
+        return 0
+
+
+def build_mobile_library_item(item: dict, flags: dict) -> dict:
+    raw = item if isinstance(item, dict) else {}
+    model_dir = str(raw.get("dir") or raw.get("model_dir") or raw.get("id") or "").strip()
+    favorites = flags.get("favorites") if isinstance(flags, dict) else []
+    printed = flags.get("printed") if isinstance(flags, dict) else []
+    favorite_set = {str(x or "").strip() for x in favorites if str(x or "").strip()}
+    printed_set = {str(x or "").strip() for x in printed if str(x or "").strip()}
+    source = str(raw.get("source") or "").strip()
+    created_at = str(raw.get("collectedAt") or raw.get("createdAt") or raw.get("update_time") or "").strip()
+    title = str(raw.get("title") or raw.get("name") or model_dir).strip()
+    return {
+        "id": model_dir,
+        "modelId": str(raw.get("id") or "").strip(),
+        "title": title,
+        "author": mobile_pick_author(raw),
+        "coverImage": mobile_pick_image_url(model_dir, raw.get("cover") or raw.get("coverImage")),
+        "isFavorite": model_dir in favorite_set,
+        "isPrinted": model_dir in printed_set,
+        "isMissing": bool(raw.get("isMissing") or False),
+        "instanceCount": mobile_pick_instance_count(raw),
+        "description": str(raw.get("description") or "").strip(),
+        "tags": raw.get("tags") if isinstance(raw.get("tags"), list) else [],
+        "source": mobile_source_label(source or normalize_model_source(raw, model_dir)),
+        "createdAt": created_at,
+        "publishedAt": str(raw.get("publishedAt") or raw.get("publishTime") or "").strip(),
+        "favoriteFolders": mobile_pick_folder_names(flags, model_dir),
+    }
+
+
+def mobile_pick_missing_items(cfg) -> List[dict]:
+    payload = parse_missing(cfg)
+    if isinstance(payload, dict):
+        items = payload.get("items")
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+        return []
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
+def mobile_map_archive_task(task: dict) -> dict:
+    payload = task if isinstance(task, dict) else {}
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    title = str(
+        payload.get("title")
+        or result.get("title")
+        or result.get("model_title")
+        or result.get("name")
+        or result.get("base_name")
+        or ""
+    ).strip()
+    status = str(payload.get("status") or "").strip().lower()
+    if status == "queued":
+        status = "pending"
+    elif status == "success":
+        status = "completed"
+    time_text = str(payload.get("finished_at") or payload.get("started_at") or payload.get("created_at") or "").strip()
+    return {
+        "id": str(payload.get("task_id") or "").strip(),
+        "url": str(payload.get("url") or "").strip(),
+        "status": status or "pending",
+        "title": title,
+        "error": str(payload.get("error") or "").strip(),
+        "progress": payload.get("progress"),
+        "time": format_mobile_datetime(time_text),
+        "message": str(payload.get("message") or "").strip(),
+    }
+
+
+def build_mobile_overview_payload(cfg) -> dict:
+    flags = load_gallery_flags()
+    items = scan_gallery(cfg)
+    library_items = [build_mobile_library_item(item, flags) for item in items if isinstance(item, dict)]
+    queue_status = get_archive_queue_status()
+    missing_items = mobile_pick_missing_items(cfg)
+    recent = sorted(
+        library_items,
+        key=lambda item: str(item.get("createdAt") or ""),
+        reverse=True,
+    )[:3]
+    return {
+        "stats": {
+            "totalModels": len(library_items),
+            "favoriteModels": sum(1 for item in library_items if item.get("isFavorite")),
+            "printedModels": sum(1 for item in library_items if item.get("isPrinted")),
+            "missingFiles": len(missing_items),
+            "archiveQueue": len(queue_status.get("queued") or []) + (1 if queue_status.get("running") else 0),
+        },
+        "recentModels": recent,
+        "quickActions": [
+            {"key": "archive", "label": "一键归档", "path": "/archive"},
+            {"key": "library", "label": "模型库", "path": "/library"},
+            {"key": "scan", "label": "扫描导入", "path": "/scan"},
+            {"key": "organize", "label": "整理目录", "path": "/organize"},
+        ],
+    }
+
+
+def mobile_guess_attachment_type(name: str) -> str:
+    lowered = str(name or "").strip().lower()
+    if lowered.endswith(".3mf"):
+        return "3mf"
+    if lowered.endswith(".stl"):
+        return "stl"
+    if lowered.endswith(".pdf"):
+        return "pdf"
+    if re.search(r"\.(jpg|jpeg|png|gif|webp|bmp)$", lowered):
+        return "image"
+    return "file"
+
+
+def mobile_join_model_file_url(model_dir: str, rel_path: str) -> str:
+    model_name = str(model_dir or "").strip()
+    rel = str(rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if not model_name or not rel:
+        return ""
+    return f"/files/{model_name}/{rel}"
+
+
+def mobile_join_model_file_url_safe(model_dir: str, rel_path: str) -> str:
+    model_name = str(model_dir or "").strip()
+    rel = str(rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if not model_name or not rel:
+        return ""
+    encoded_model = quote(model_name, safe="")
+    encoded_rel = "/".join(quote(part, safe="") for part in rel.split("/") if part)
+    return f"/files/{encoded_model}/{encoded_rel}"
+
+
+def mobile_join_model_download_url(model_dir: str, rel_path: str) -> str:
+    model_name = str(model_dir or "").strip()
+    rel = str(rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if not model_name or not rel:
+        return ""
+    encoded_model = quote(model_name, safe="")
+    encoded_rel = "/".join(quote(part, safe="") for part in rel.split("/") if part)
+    return f"/api/models/{encoded_model}/file/{encoded_rel}"
+
+
+def mobile_join_instance_download_url(model_dir: str, instance_id) -> str:
+    model_name = str(model_dir or "").strip()
+    inst_id = str(instance_id or "").strip()
+    if not model_name or not inst_id:
+        return ""
+    encoded_model = quote(model_name, safe="")
+    encoded_inst = quote(inst_id, safe="")
+    return f"/api/models/{encoded_model}/instances/{encoded_inst}/download"
+
+
+def mobile_model_root(model_dir: str, model_root: Optional[Path] = None) -> Path:
+    if isinstance(model_root, Path):
+        return model_root.resolve()
+    return (Path(CFG["download_dir"]).resolve() / str(model_dir or "").strip()).resolve()
+
+
+def mobile_find_existing_rel_path(
+    model_dir: str,
+    rel_path: str,
+    fallback_subdir: str = "images",
+    model_root: Optional[Path] = None,
+) -> str:
+    rel = str(rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if not rel:
+        return ""
+
+    root = mobile_model_root(model_dir, model_root)
+    candidate = (root / rel).resolve()
+    if candidate.exists() and candidate.is_file():
+        return rel
+
+    parent = Path(rel).parent
+    filename = Path(rel).name
+    search_dir = (root / parent).resolve()
+
+    if search_dir.exists() and search_dir.is_dir():
+        direct_name = (search_dir / filename).resolve()
+        if direct_name.exists() and direct_name.is_file():
+            return str((parent / filename).as_posix()).lstrip("/")
+
+        inst_match = re.search(r"(inst\d+_(?:pic|plate)_\d+\.[A-Za-z0-9]+)$", filename)
+        if inst_match:
+            short_name = inst_match.group(1)
+            short_candidate = (search_dir / short_name).resolve()
+            if short_candidate.exists() and short_candidate.is_file():
+                return str((parent / short_name).as_posix()).lstrip("/")
+
+    if "/" not in rel and fallback_subdir:
+        fallback_rel = f"{fallback_subdir}/{rel}".lstrip("/")
+        fallback_candidate = (root / fallback_rel).resolve()
+        if fallback_candidate.exists() and fallback_candidate.is_file():
+            return fallback_rel
+
+    return rel
+
+
+def mobile_pick_rel_path(value) -> str:
+    if isinstance(value, dict):
+        for key in ("relPath", "thumbnailRelPath", "avatarRelPath", "path", "url"):
+            raw = str(value.get(key) or "").strip()
+            if raw:
+                return raw
+        return ""
+    return str(value or "").strip()
+
+
+def mobile_pick_image_url(model_dir: str, value, fallback_subdir: str = "images", model_root: Optional[Path] = None) -> str:
+    if isinstance(value, dict):
+        rel = mobile_pick_rel_path(value)
+        if rel:
+            return mobile_join_model_file_url(
+                model_dir,
+                mobile_find_existing_rel_path(model_dir, rel, fallback_subdir, model_root),
+            )
+        local_name = str(value.get("localName") or value.get("thumbnailFile") or value.get("fileName") or "").strip()
+        if local_name:
+            fallback_rel = mobile_find_existing_rel_path(
+                model_dir,
+                f"{fallback_subdir}/{local_name}",
+                fallback_subdir,
+                model_root,
+            )
+            return mobile_join_model_file_url(model_dir, fallback_rel)
+        return ""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("/") or raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if "/" in raw:
+        return mobile_join_model_file_url(
+            model_dir,
+            mobile_find_existing_rel_path(model_dir, raw, fallback_subdir, model_root),
+        )
+    fallback_rel = mobile_find_existing_rel_path(model_dir, f"{fallback_subdir}/{raw}", fallback_subdir, model_root)
+    return mobile_join_model_file_url(model_dir, fallback_rel)
+
+
+def mobile_clean_text(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "<" in text and ">" in text:
+        text = strip_html(text)
+    return " ".join(text.split()).strip()
+
+
+def mobile_pick_text(value) -> str:
+    if isinstance(value, dict):
+        for key in ("text", "summary", "title", "html", "raw"):
+            text = mobile_clean_text(value.get(key) or "")
+            if text:
+                return text
+        return ""
+    return mobile_clean_text(value or "")
+
+
+def mobile_format_duration_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if re.search(r"[天小时分秒]|:", text):
+            return text
+        try:
+            value = int(float(text))
+        except Exception:
+            return text
+    try:
+        total_seconds = int(float(value))
+    except Exception:
+        return str(value).strip()
+    if total_seconds <= 0:
+        return ""
+    days, remain = divmod(total_seconds, 86400)
+    hours, remain = divmod(remain, 3600)
+    minutes, seconds = divmod(remain, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}天")
+    if hours:
+        parts.append(f"{hours}小时")
+    if minutes:
+        parts.append(f"{minutes}分")
+    if seconds or not parts:
+        parts.append(f"{seconds}秒")
+    return "".join(parts)
+
+
+def mobile_format_number_text(value, suffix: str = "") -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        return text
+    try:
+        number = float(value)
+    except Exception:
+        return str(value).strip()
+    if number <= 0:
+        return ""
+    if number.is_integer():
+        return f"{int(number)}{suffix}"
+    return f"{number:g}{suffix}"
+
+
+def mobile_localize_summary_html(model_dir: str, summary_value, model_root: Optional[Path] = None) -> str:
+    html = ""
+    if isinstance(summary_value, dict):
+        html = str(summary_value.get("html") or summary_value.get("raw") or "").strip()
+    else:
+        raw = str(summary_value or "").strip()
+        if "<" in raw and ">" in raw:
+            html = raw
+    if not html:
+        return ""
+
+    html = re.sub(r"<script[\s\S]*?>[\s\S]*?</script>", "", html, flags=re.IGNORECASE).strip()
+    html = re.sub(r"<style[\s\S]*?>[\s\S]*?</style>", "", html, flags=re.IGNORECASE).strip()
+
+    def replace_src(match: re.Match) -> str:
+        prefix, quote, src, _quote_tail, suffix = match.groups()
+        source = str(src or "").strip()
+        if not source:
+            return match.group(0)
+        if source.startswith(("http://", "https://", "data:", "/")):
+            return match.group(0)
+        rel = source.replace("\\", "/").lstrip("./")
+        resolved = mobile_find_existing_rel_path(model_dir, rel, model_root=model_root)
+        return f"{prefix}{quote}{mobile_join_model_file_url_safe(model_dir, resolved)}{quote}{suffix}"
+
+    html = re.sub(
+        r'(<img\b[^>]*\bsrc\s*=\s*)(["\'])([^"\']+)(\2)([^>]*>)',
+        replace_src,
+        html,
+        flags=re.IGNORECASE,
+    )
+
+    def build_video_embed(url: str) -> str:
+        parsed = urlparse(url)
+        host = (parsed.netloc or "").lower()
+        bvid_match = re.search(r"(BV[0-9A-Za-z]+)", url, flags=re.IGNORECASE)
+        if "bilibili.com" in host and bvid_match:
+            bvid = bvid_match.group(1)
+            iframe_src = f"https://player.bilibili.com/player.html?bvid={escape_html(bvid)}&page=1&high_quality=1&danmaku=0"
+            return (
+                '<div class="mw-video-embed">'
+                f'<iframe src="{iframe_src}" title="Bilibili Video" loading="lazy" '
+                'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>'
+                "</div>"
+            )
+        safe_url = escape_html(url)
+        return (
+            f'<a class="mw-rich-link" href="{safe_url}" target="_blank" rel="noopener noreferrer">'
+            "查看原视频"
+            "</a>"
+        )
+
+    def replace_oembed(match: re.Match) -> str:
+        url = str(match.group(1) or "").strip()
+        if not url:
+            return ""
+        return build_video_embed(url)
+
+    html = re.sub(
+        r"<oembed\b[^>]*\burl\s*=\s*['\"]([^'\"]+)['\"][^>]*>\s*</oembed>",
+        replace_oembed,
+        html,
+        flags=re.IGNORECASE,
+    )
+    html = re.sub(r"<boostme[^>]*>", '<aside class="mw-boost-box">', html, flags=re.IGNORECASE)
+    html = re.sub(r"</boostme>", "</aside>", html, flags=re.IGNORECASE)
+    html = re.sub(r"<boosttitle[^>]*>", '<strong class="mw-boost-title">', html, flags=re.IGNORECASE)
+    html = re.sub(r"</boosttitle>", "</strong>", html, flags=re.IGNORECASE)
+    html = re.sub(r"<boostcontent[^>]*>", '<div class="mw-boost-content">', html, flags=re.IGNORECASE)
+    html = re.sub(r"</boostcontent>", "</div>", html, flags=re.IGNORECASE)
+    html = re.sub(r"<p>(?:&nbsp;|\s|&#160;)*</p>", "", html, flags=re.IGNORECASE)
+    return html.strip()
+
+
+def build_mobile_model_detail_payload(model_dir: str) -> dict:
+    target = resolve_model_dir(model_dir)
+    meta = read_json_file(target / "meta.json", {})
+    if not isinstance(meta, dict) or not meta:
+        raise HTTPException(404, "meta.json 不存在")
+    instances = meta.get("instances") if isinstance(meta.get("instances"), list) else []
+    detail_instances = []
+    for inst in instances:
+        if not isinstance(inst, dict):
+            continue
+        plates = inst.get("plates") if isinstance(inst.get("plates"), list) else []
+        detail_plates = []
+        for idx, plate in enumerate(plates):
+            if not isinstance(plate, dict):
+                continue
+            materials = plate.get("materials") if isinstance(plate.get("materials"), list) else []
+            if not materials:
+                materials = plate.get("filaments") if isinstance(plate.get("filaments"), list) else []
+            detail_plates.append({
+                "id": str(plate.get("id") or plate.get("plateIndex") or idx + 1),
+                "name": str(plate.get("name") or f"盘 {idx + 1}").strip(),
+                "image": mobile_pick_image_url(
+                    model_dir,
+                    plate.get("image") or plate.get("plateThumbnail") or plate.get("thumbnailRelPath") or plate.get("thumbnailFile"),
+                    model_root=target,
+                ),
+                "time": mobile_format_duration_text(plate.get("time") or plate.get("printTime") or plate.get("prediction")),
+                "weight": mobile_format_number_text(plate.get("weight"), "g"),
+                "materials": [
+                    str(item.get("color") or item.get("hex") or "").strip()
+                    for item in materials if isinstance(item, dict) and str(item.get("color") or item.get("hex") or "").strip()
+                ],
+            })
+        pictures = inst.get("pictures") if isinstance(inst.get("pictures"), list) else []
+        picture_value = pictures[0] if pictures else None
+        detail_instances.append({
+            "id": str(inst.get("id") or "").strip(),
+            "name": str(inst.get("title") or inst.get("name") or f"配置 {len(detail_instances) + 1}").strip(),
+            "image": mobile_pick_image_url(model_dir, inst.get("image") or inst.get("cover") or picture_value, model_root=target),
+            "downloadUrl": mobile_join_instance_download_url(model_dir, inst.get("id")),
+            "time": mobile_format_duration_text(inst.get("time") or inst.get("printTime") or inst.get("prediction")),
+            "weight": mobile_format_number_text(inst.get("weight"), "g"),
+            "material": str(inst.get("material") or inst.get("filamentType") or "").strip(),
+            "printer": str(inst.get("printer") or inst.get("printerName") or "").strip(),
+            "layerHeight": str(inst.get("layerHeight") or "").strip(),
+            "summary": mobile_pick_text(inst.get("summary")),
+            "plates": detail_plates,
+        })
+
+    attachments = []
+    for raw_file in list_files_in_dir(target / "file", image_only=False):
+        if isinstance(raw_file, dict):
+            name = str(raw_file.get("name") or raw_file.get("title") or "").strip()
+            rel_path = str(raw_file.get("relPath") or raw_file.get("path") or raw_file.get("filePath") or "").strip()
+        else:
+            name = str(raw_file or "").strip()
+            rel_path = name
+        if not name:
+            continue
+        rel_path = mobile_find_existing_rel_path(model_dir, rel_path or f"file/{name}", "file", target)
+        preview_url = mobile_join_model_file_url_safe(model_dir, rel_path)
+        download_url = mobile_join_model_download_url(model_dir, rel_path)
+        attachments.append({
+            "id": name,
+            "name": name,
+            "type": mobile_guess_attachment_type(name),
+            "url": download_url,
+            "previewUrl": preview_url,
+            "downloadUrl": download_url,
+        })
+
+    return {
+        "id": model_dir,
+        "title": str(meta.get("title") or model_dir).strip(),
+        "author": mobile_pick_author(meta),
+        "coverImage": mobile_pick_image_url(model_dir, meta.get("cover") or meta.get("coverUrl"), model_root=target),
+        "images": [
+            url for url in [
+                *[
+                    mobile_pick_image_url(model_dir, image, model_root=target)
+                    for image in (meta.get("images", {}).get("design") if isinstance(meta.get("images"), dict) and isinstance(meta.get("images").get("design"), list) else [])
+                ],
+                *[
+                    mobile_pick_image_url(model_dir, image, model_root=target)
+                    for image in (meta.get("designImages") if isinstance(meta.get("designImages"), list) else [])
+                ],
+            ] if url
+        ],
+        "description": mobile_pick_text(meta.get("description") or meta.get("summary")),
+        "descriptionHtml": mobile_localize_summary_html(model_dir, meta.get("description") or meta.get("summary"), model_root=target),
+        "source": mobile_source_label(str(meta.get("source") or normalize_model_source(meta, model_dir)).strip()),
+        "createdAt": str(meta.get("collectedAt") or meta.get("update_time") or "").strip(),
+        "sourceUrl": str(meta.get("onlineUrl") or meta.get("url") or "").strip(),
+        "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [],
+        "attachments": attachments,
+        "instances": detail_instances,
+    }
+
+
+def build_mobile_archive_center_payload(cfg) -> dict:
+    queue_status = get_archive_queue_status()
+    queue = []
+    running_task = queue_status.get("running")
+    if isinstance(running_task, dict):
+        queue.append(mobile_map_archive_task(running_task))
+    for task in queue_status.get("queued") or []:
+        if isinstance(task, dict):
+            queue.append(mobile_map_archive_task(task))
+    recent_tasks = []
+    for task in queue_status.get("recent") or []:
+        if isinstance(task, dict):
+            recent_tasks.append(mobile_map_archive_task(task))
+    return {
+        "queue": queue,
+        "recentTasks": recent_tasks,
+        "missingFiles": mobile_pick_missing_items(cfg),
+    }
+
+
+def build_mobile_settings_payload(cfg) -> dict:
+    notify_cfg = cfg.get("notifications") if isinstance(cfg.get("notifications"), dict) else {}
+    telegram_cfg = notify_cfg.get("telegram") if isinstance(notify_cfg.get("telegram"), dict) else {}
+    feishu_cfg = notify_cfg.get("feishu") if isinstance(notify_cfg.get("feishu"), dict) else {}
+    wecom_cfg = notify_cfg.get("wecom") if isinstance(notify_cfg.get("wecom"), dict) else {}
+    cookie_store = load_cookie_store(cfg)
+    cn_list = cookie_store.get("cn") if isinstance(cookie_store.get("cn"), list) else []
+    global_list = cookie_store.get("global") if isinstance(cookie_store.get("global"), list) else []
+    return {
+        "connection": {
+            "backendUrl": str(notify_cfg.get("web_base_url") or "").strip(),
+        },
+        "notifications": {
+            "telegram": {
+                "enabled": bool(telegram_cfg.get("enable_push")),
+                "botToken": str(telegram_cfg.get("bot_token") or "").strip(),
+                "chatId": str(telegram_cfg.get("chat_id") or "").strip(),
+            },
+            "feishu": {
+                "enabled": bool(feishu_cfg.get("enable_push")),
+                "webhookUrl": str(feishu_cfg.get("webhook_url") or "").strip(),
+            },
+            "wecom": {
+                "enabled": bool(wecom_cfg.get("enable_push")),
+                "enableCommand": bool(wecom_cfg.get("enable_command")),
+            },
+        },
+        "cookies": {
+            "cnCount": len(cn_list),
+            "globalCount": len(global_list),
+            "cnStatus": [str(item.get("status") or "").strip() for item in cn_list if isinstance(item, dict)],
+            "globalStatus": [str(item.get("status") or "").strip() for item in global_list if isinstance(item, dict)],
+        },
+    }
+
+
+def build_mobile_tools_payload(cfg) -> dict:
+    batch_cfg = cfg.get("local_batch_import") if isinstance(cfg.get("local_batch_import"), dict) else {}
+    organizer_cfg = cfg.get("local_3mf_organizer") if isinstance(cfg.get("local_3mf_organizer"), dict) else {}
+    return {
+        "scanImport": {
+            "enabled": bool(batch_cfg.get("enabled")),
+            "watchDirs": batch_cfg.get("watch_dirs") if isinstance(batch_cfg.get("watch_dirs"), list) else [],
+            "processedDirName": str(batch_cfg.get("processed_dir_name") or "").strip(),
+            "failedDirName": str(batch_cfg.get("failed_dir_name") or "").strip(),
+            "scanIntervalSeconds": int(batch_cfg.get("scan_interval_seconds") or 0),
+            "notifyOnFinish": bool(batch_cfg.get("notify_on_finish")),
+            "duplicatePolicy": str(batch_cfg.get("duplicate_policy") or "").strip(),
+        },
+        "organizer": {
+            "rootDir": str(organizer_cfg.get("root_dir") or "").strip(),
+            "mode": str(organizer_cfg.get("mode") or "").strip(),
+        },
+    }
+
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -2856,6 +3480,31 @@ async def shutdown_events():
 @app.get("/")
 async def gallery_page():
     return FileResponse(BASE_DIR / "templates" / "gallery.html")
+
+
+def _resolve_h5_dist_file(path: str = "") -> Path:
+    if not H5_DIST_DIR.exists():
+        raise HTTPException(404, "h5/dist 不存在，请先在 h5 目录执行 npm run build")
+    clean_path = str(path or "").strip().lstrip("/")
+    if not clean_path:
+        target = H5_DIST_DIR / "index.html"
+    else:
+        target = (H5_DIST_DIR / Path(clean_path)).resolve()
+        if not str(target).startswith(str(H5_DIST_DIR.resolve())):
+            raise HTTPException(400, "非法路径")
+    if target.is_file():
+        return target
+    return H5_DIST_DIR / "index.html"
+
+
+@app.get("/h5")
+async def h5_page():
+    return FileResponse(_resolve_h5_dist_file())
+
+
+@app.get("/h5/{path:path}")
+async def h5_page_with_path(path: str):
+    return FileResponse(_resolve_h5_dist_file(path))
 
 
 @app.get("/config")
@@ -3475,6 +4124,47 @@ async def api_delete_missing(index: int):
 @app.get("/api/gallery")
 async def api_gallery():
     return scan_gallery(CFG)
+
+
+@app.get("/api/mobile/overview")
+async def api_mobile_overview():
+    cfg = load_config()
+    return build_mobile_overview_payload(cfg)
+
+
+@app.get("/api/mobile/library")
+async def api_mobile_library(refresh: int = 0):
+    cfg = load_config()
+    flags = load_gallery_flags()
+    if int(refresh or 0) == 1:
+        rebuild_gallery_index(cfg["download_dir"], index_path=GALLERY_INDEX_PATH)
+    items = scan_gallery(cfg)
+    return {
+        "items": [build_mobile_library_item(item, flags) for item in items if isinstance(item, dict)]
+    }
+
+
+@app.get("/api/mobile/models/{model_dir}")
+async def api_mobile_model_detail(model_dir: str):
+    return build_mobile_model_detail_payload(model_dir)
+
+
+@app.get("/api/mobile/archive-center")
+async def api_mobile_archive_center():
+    cfg = load_config()
+    return build_mobile_archive_center_payload(cfg)
+
+
+@app.get("/api/mobile/settings")
+async def api_mobile_settings():
+    cfg = load_config()
+    return build_mobile_settings_payload(cfg)
+
+
+@app.get("/api/mobile/tools")
+async def api_mobile_tools():
+    cfg = load_config()
+    return build_mobile_tools_payload(cfg)
 
 
 @app.post("/api/gallery/rebuild-index")

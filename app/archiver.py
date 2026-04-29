@@ -2141,6 +2141,8 @@ def archive_model(
     work_dir = meta_path.parent / (meta.get("baseName") or meta_path.stem.replace("_meta", ""))
     return {
         "base_name": base_name,
+        "title": title,
+        "model_title": title,
         "work_dir": str(work_dir.resolve()),
         "missing_3mf": missing_3mf,
         "action": action,
