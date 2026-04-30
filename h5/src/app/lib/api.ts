@@ -1,22 +1,53 @@
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_STORAGE_KEY = 'mw_api_base_url';
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '');
 }
 
-export function getApiBaseUrl() {
-  const stored = typeof window !== 'undefined' ? window.localStorage.getItem('mw_api_base_url') : '';
-  const candidate = (stored || '').trim();
-  if (candidate) {
-    return trimTrailingSlash(candidate);
+function isLoopbackHost(hostname: string) {
+  const raw = (hostname || '').trim().toLowerCase();
+  return raw === '127.0.0.1' || raw === 'localhost' || raw === '::1';
+}
+
+function getCurrentOriginBase() {
+  if (typeof window === 'undefined') {
+    return '';
   }
-  if (typeof window !== 'undefined') {
-    const { origin, port, protocol } = window.location;
-    if (protocol.startsWith('http') && (port === '8000' || port === '8001')) {
-      return trimTrailingSlash(origin);
+  const { origin, protocol } = window.location;
+  if (protocol.startsWith('http')) {
+    return trimTrailingSlash(origin);
+  }
+  return '';
+}
+
+function pickStoredApiBase() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  const candidate = (window.localStorage.getItem(API_BASE_STORAGE_KEY) || '').trim();
+  if (!candidate) {
+    return '';
+  }
+  try {
+    const parsed = new URL(candidate);
+    const current = new URL(window.location.origin);
+    const currentIsLoopback = isLoopbackHost(current.hostname);
+    const storedIsLoopback = isLoopbackHost(parsed.hostname);
+    if (storedIsLoopback && !currentIsLoopback) {
+      return '';
     }
+    return trimTrailingSlash(parsed.origin);
+  } catch {
+    return '';
   }
-  return DEFAULT_API_BASE_URL;
+}
+
+export function getApiBaseUrl() {
+  const storedBase = pickStoredApiBase();
+  if (storedBase) {
+    return storedBase;
+  }
+  return getCurrentOriginBase();
 }
 
 export function setApiBaseUrl(value: string) {
@@ -25,10 +56,15 @@ export function setApiBaseUrl(value: string) {
   }
   const normalized = trimTrailingSlash((value || '').trim());
   if (!normalized) {
-    window.localStorage.removeItem('mw_api_base_url');
+    window.localStorage.removeItem(API_BASE_STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem('mw_api_base_url', normalized);
+  const currentOrigin = getCurrentOriginBase();
+  if (currentOrigin && normalized === currentOrigin) {
+    window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
 }
 
 export function resolveApiUrl(path: string) {
@@ -36,7 +72,8 @@ export function resolveApiUrl(path: string) {
     return path;
   }
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${getApiBaseUrl()}${normalizedPath}`;
+  const base = getApiBaseUrl();
+  return base ? `${base}${normalizedPath}` : normalizedPath;
 }
 
 export function resolveAssetUrl(path?: string) {
