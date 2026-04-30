@@ -16,6 +16,7 @@ import {
   saveOrganizerConfig,
   testConnection,
 } from '../lib/mobile-api';
+import { getApiBaseUrl } from '../lib/api';
 import { getStoredTheme, setStoredTheme } from '../lib/theme';
 
 type SubView = 'main' | 'notifications' | 'tasks' | 'cookies';
@@ -26,7 +27,7 @@ function joinCookieValues(items: Array<{ value?: string }> | undefined) {
 
 export function Settings() {
   const [activeView, setActiveView] = useState<SubView>('main');
-  const [backendUrl, setBackendUrl] = useState('http://127.0.0.1:8000');
+  const [backendUrl, setBackendUrl] = useState(getApiBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : ''));
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<'idle' | 'success' | 'error'>('idle');
   const [pageError, setPageError] = useState('');
@@ -78,7 +79,7 @@ export function Settings() {
         if (!alive) {
           return;
         }
-        setBackendUrl(window.localStorage.getItem('mw_api_base_url') || settings.connection.backendUrl || 'http://127.0.0.1:8000');
+        setBackendUrl(getApiBaseUrl() || settings.connection.backendUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
         setTgEnabled(settings.notifications.telegram.enabled);
         setTgToken(settings.notifications.telegram.botToken);
         setTgChatId(settings.notifications.telegram.chatId);
