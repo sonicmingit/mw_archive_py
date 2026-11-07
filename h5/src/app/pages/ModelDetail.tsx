@@ -80,8 +80,8 @@ export function ModelDetail() {
   );
 
   const images = Array.from(new Set(model.images && model.images.length > 0 ? model.images : [model.coverImage].filter(Boolean)));
-  const imageFallback = 'https://placehold.co/160x160/e2e8f0/64748b?text=3D';
-  const plateFallback = 'https://placehold.co/96x96/e2e8f0/64748b?text=Plate';
+  const imageFallback = '/h5/icons/icon-192.png';
+  const plateFallback = '/h5/icons/icon-192.png';
 
   const renderMetricText = (value?: string, fallback = '未记录') => {
     const text = (value || '').trim();
@@ -162,7 +162,7 @@ export function ModelDetail() {
           {images.map((img, idx) => (
             <div key={idx} className="w-full h-full shrink-0 snap-center relative">
               <img
-                src={img || 'https://placehold.co/1024x1024/0f172a/e2e8f0?text=3D'}
+                src={img || '/h5/icons/icon-192.png'}
                 alt={`${model.title} ${idx + 1}`}
                 className="w-full h-full object-cover"
                 {...bindImageFallback(imageFallback)}
@@ -193,6 +193,7 @@ export function ModelDetail() {
         {/* Title & Author */}
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 dark:text-white leading-snug mb-1">{model.title}</h1>
+          <a className="text-sm underline" href="#model-files">查看打印配置（{model.instances?.length || 0}）</a>
           {model.author && (
             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">by {model.author}</p>
           )}
@@ -247,7 +248,7 @@ export function ModelDetail() {
         )}
 
         {/* Instances / Configs */}
-        <div>
+        <div id="model-files">
           <SectionTitle title="配置详情" icon={Box} />
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden divide-y divide-slate-50 dark:divide-slate-800 transition-colors">
             {model.instances && model.instances.length > 0 ? (

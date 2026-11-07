@@ -4,8 +4,8 @@
 
 :root {
   /* Colors - Primary */
-  --color-primary: #00B8D4;
-  --color-primary-dark: #0097A7;
+  --color-primary: #007889;
+  --color-primary-dark: #006775;
   --color-primary-light: #B2EBF2;
   
   /* Colors - Semantic */
@@ -148,4 +148,12 @@
     --text-secondary: #B0B0B0;
     --border-color: #424242;
   }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary-dark);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
 }

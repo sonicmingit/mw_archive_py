@@ -150,6 +150,7 @@ function buildFlagsPayload() {
   };
 }
 
+let savedFlags = null;
 async function loadFlags() {
   try {
     const res = await fetch("/api/gallery/flags");
@@ -158,7 +159,13 @@ async function loadFlags() {
     favoriteSet = new Set(Array.isArray(data.favorites) ? data.favorites : []);
     printedSet = new Set(Array.isArray(data.printed) ? data.printed : []);
     folders = normalizeFolders(data.folders);
+    savedFlags = buildFlagsPayload();
   } catch (e) {
+    savedFlags = null;
+    const warning = document.createElement("button");
+    warning.textContent = "收藏状态读取失败，点击重试";
+    warning.onclick = () => { warning.remove(); load(); };
+    document.querySelector(".toolbar")?.append(warning);
     console.warn("载入标记失败", e);
     favoriteSet = new Set();
     printedSet = new Set();
@@ -168,12 +175,15 @@ async function loadFlags() {
 
 async function saveFlags() {
   try {
+    if (!savedFlags) throw new Error("收藏读取失败，请刷新后重试");
+    const after = buildFlagsPayload();
     const res = await fetch("/api/gallery/flags", {
-      method: "POST",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildFlagsPayload())
+      body: JSON.stringify({ before: savedFlags, after })
     });
     if (!res.ok) throw new Error("save flags failed");
+    savedFlags = after;
   } catch (e) {
     console.warn("保存标记失败", e);
     throw e;
@@ -310,7 +320,11 @@ function createFilterChip({ label, value, count, isActive, onSelect, extraClass,
   btn.type = "button";
   btn.className = "side-item" + (isActive ? " active" : "") + (extraClass ? ` ${extraClass}` : "");
   const rightText = typeof count === "number" ? count : (subLabel || "");
-  btn.innerHTML = `<span>${label}</span> <span style="font-size:12px; opacity:0.6;">${rightText}</span>`;
+  const name = document.createElement("span");
+  name.textContent = label;
+  const total = document.createElement("small");
+  total.textContent = rightText;
+  btn.append(name, total);
   btn.addEventListener("click", () => onSelect(value));
   return btn;
 }
@@ -488,10 +502,18 @@ async function load() {
   try {
     await loadFlags();
     const res = await fetch("/api/gallery");
+    if (!res.ok) throw new Error("图库加载失败");
     models = await res.json();
   } catch (e) {
     console.error("载入模型失败", e);
-    models = [];
+    const empty = document.getElementById("empty");
+    empty.style.display = "block";
+    empty.textContent = "模型库加载失败 ";
+    const retry = document.createElement("button");
+    retry.textContent = "重试";
+    retry.onclick = load;
+    empty.append(retry);
+    return;
   }
   cleanupSelection();
   syncFlagFilterButtons();
@@ -914,31 +936,14 @@ function renderGrid(append = false) {
     meta.appendChild(authorWrap);
     body.appendChild(meta);
 
-    const statsWrap = document.createElement("div");
-    statsWrap.className = "stats";
-    if (m.stats?.likes > 0) statsWrap.appendChild(createStatIcon("fas fa-thumbs-up", m.stats.likes, "点赞"));
-    if (m.stats?.favorites > 0) statsWrap.appendChild(createStatIcon("fas fa-star", m.stats.favorites, "收藏"));
-    if (m.stats?.prints > 0) statsWrap.appendChild(createStatIcon("fas fa-print", m.stats.prints, "打印"));
-    if (m.stats?.downloads > 0 || m.downloadCount > 0) {
-      statsWrap.appendChild(createStatIcon("fas fa-download", m.stats?.downloads || m.downloadCount, "下载"));
+    const published = sortOrderSelect?.value === "published";
+    const date = published ? m.publishedAt : m.collectedAt;
+    if (date) {
+      const dateInfo = document.createElement("div");
+      dateInfo.className = "card-dates";
+      dateInfo.textContent = (published ? "发布于 " : "归档于 ") + formatDate(date);
+      body.appendChild(dateInfo);
     }
-    body.appendChild(statsWrap);
-
-    const dateInfo = document.createElement("div");
-    dateInfo.className = "card-dates";
-    if (m.publishedAt) {
-      const publishDate = document.createElement("span");
-      publishDate.className = "date-item";
-      publishDate.innerHTML = `<i class="far fa-calendar-alt"></i> ${formatDate(m.publishedAt)}`;
-      dateInfo.appendChild(publishDate);
-    }
-    if (m.collectedAt) {
-      const collectDate = document.createElement("span");
-      collectDate.className = "date-item";
-      collectDate.innerHTML = `<i class="fas fa-archive"></i> ${formatDate(m.collectedAt)}`;
-      dateInfo.appendChild(collectDate);
-    }
-    if (dateInfo.children.length > 0) body.appendChild(dateInfo);
 
     const actions = document.createElement("div");
     actions.className = "card-actions";
@@ -955,6 +960,7 @@ function renderGrid(append = false) {
 
     const favBtn = document.createElement("button");
     favBtn.className = "action-btn" + (isFavorite ? " active" : "");
+    favBtn.disabled = !savedFlags;
     favBtn.title = isFavorite ? "取消收藏" : "收藏";
     favBtn.innerHTML = isFavorite ? '<i class="fas fa-heart"></i>' : '<i class="far fa-heart"></i>';
     favBtn.addEventListener("click", async (e) => {
@@ -965,6 +971,7 @@ function renderGrid(append = false) {
 
     const printedBtn = document.createElement("button");
     printedBtn.className = "action-btn" + (isPrinted ? " active" : "");
+    printedBtn.disabled = !savedFlags;
     printedBtn.title = isPrinted ? "取消标记" : "标记已打印";
     printedBtn.innerHTML = isPrinted ? '<i class="fas fa-check-circle"></i>' : '<i class="far fa-check-circle"></i>';
     printedBtn.addEventListener("click", async (e) => {
@@ -985,7 +992,12 @@ function renderGrid(append = false) {
       e.stopPropagation();
       await deleteModel(m);
     });
-    actions.appendChild(deleteBtn);
+    const more = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "更多";
+    more.addEventListener("click", e => e.stopPropagation());
+    more.append(summary, deleteBtn);
+    actions.appendChild(more);
 
     body.appendChild(actions);
     card.appendChild(body);
@@ -995,13 +1007,7 @@ function renderGrid(append = false) {
   updateLoadMoreIndicator(displayedCount < total);
 }
 
-function createStatIcon(iconClass, count, title) {
-  const span = document.createElement("span");
-  span.className = "stat-chip";
-  span.title = title || "";
-  span.innerHTML = `<i class="${iconClass}"></i> ${count}`;
-  return span;
-}
+
 
 function renderFolderModalOptions() {
   if (!folderOptionList) return;
@@ -1013,13 +1019,18 @@ function renderFolderModalOptions() {
   folders.forEach((folder) => {
     const label = document.createElement("label");
     label.className = "folder-option";
-    label.innerHTML = `
-      <input type="checkbox" value="${folder.id}">
-      <span class="folder-option__content">
-        <span class="folder-option__name">${folder.name}</span>
-        <span class="folder-option__desc">${folder.description || "无简介"}</span>
-      </span>
-    `;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = folder.id;
+    const content = document.createElement("span");
+    content.className = "folder-option__content";
+    for (const [suffix, value] of [["name", folder.name], ["desc", folder.description || "无简介"]]) {
+      const field = document.createElement("span");
+      field.className = "folder-option__" + suffix;
+      field.textContent = value;
+      content.append(field);
+    }
+    label.append(input, content);
     folderOptionList.appendChild(label);
   });
 }

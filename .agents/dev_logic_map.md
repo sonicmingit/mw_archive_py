@@ -263,3 +263,6 @@
     - 后续新增企微等渠道时，只需注册到 `NotificationDispatcher`
 
 
+
+## 当前维护入口（优化分支）
+桌面使用 app/templates 与 app/static，手机使用 h5/src；build_index_html 内联同一套详情脚本。图库索引事务锁覆盖读取、重建、增删与发布。两端使用 PATCH /api/gallery/flags 合并标记变更；旧全量接口供兼容使用。富文本仅在展示副本过滤。插件发布源以 scripts/sync_version.py 列出的路径为准。

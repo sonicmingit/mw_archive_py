@@ -99,8 +99,7 @@ def main() -> int:
     for rel, fn, version in targets:
         abs_path = REPO_ROOT / rel
         if not abs_path.exists():
-            print(f"Skip missing target: {rel}")
-            continue
+            raise FileNotFoundError(f"缺少发布源文件: {rel}")
         if fn(abs_path, version):
             changed.append(rel)
 

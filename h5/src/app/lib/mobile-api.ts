@@ -86,10 +86,10 @@ export async function getGalleryFlags() {
   return fetchJson<GalleryFlags>('/api/gallery/flags');
 }
 
-export async function saveGalleryFlags(payload: GalleryFlags) {
-  return fetchJson<{ status: string }>('/api/gallery/flags', {
-    method: 'POST',
-    body: JSON.stringify(payload),
+export async function saveGalleryFlags(before: GalleryFlags, after: GalleryFlags) {
+  return fetchJson<GalleryFlags>('/api/gallery/flags', {
+    method: 'PATCH',
+    body: JSON.stringify({ before, after }),
   });
 }
 

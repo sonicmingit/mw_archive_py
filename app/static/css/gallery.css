@@ -65,7 +65,7 @@ header {
   border-radius: 24px;
   padding: 0 16px;
   height: 40px;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
   border: none;
   outline: 1px solid transparent;
 }
@@ -167,23 +167,23 @@ header {
 
 /* Sidebar Color Accents */
 .side-title.source-title {
-  color: var(--color-info);
+  color: var(--text-secondary);
 }
 
 .side-title.filter-title {
-  color: var(--color-warning);
+  color: var(--text-secondary);
 }
 
 .side-title.tag-title {
-  color: var(--color-primary);
+  color: var(--text-secondary);
 }
 
 .side-title.author-title {
-  color: var(--color-success);
+  color: var(--text-secondary);
 }
 
 .side-title.folder-title {
-  color: #7c3aed;
+  color: var(--text-secondary);
 }
 
 .side-menu {
@@ -205,7 +205,7 @@ header {
   cursor: pointer;
   width: 100%;
   text-align: left;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .tag-list .side-item {
@@ -326,7 +326,7 @@ header {
   border: 1px solid var(--border-color);
   overflow: hidden;
   position: relative;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
   display: flex;
   flex-direction: column;
 }
@@ -489,46 +489,6 @@ body.selection-mode .card-select-toggle {
 }
 
 /* Stats */
-.stats {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-top: auto;
-}
-
-.stat-chip {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.stat-chip i {
-  font-size: 14px;
-}
-
-/* Colorful stat icons */
-.stat-chip i.fa-thumbs-up {
-  color: #f59e0b;
-  /* Orange for likes */
-}
-
-.stat-chip i.fa-star {
-  color: #eab308;
-  /* Yellow for favorites */
-}
-
-.stat-chip i.fa-print {
-  color: #8b5cf6;
-  /* Purple for prints */
-}
-
-.stat-chip i.fa-download {
-  color: #06b6d4;
-  /* Cyan for downloads */
-}
-
 /* Card Dates */
 .card-dates {
   display: flex;
@@ -585,7 +545,7 @@ body.selection-mode .card-select-toggle {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s;
 }
 
 .action-btn:hover {
@@ -770,7 +730,6 @@ body.compact-mode .card:hover .card-cover__overlay-text {
 }
 
 body.compact-mode .card-meta,
-body.compact-mode .stats,
 body.compact-mode .card-dates,
 body.compact-mode .card-actions {
   display: none;
@@ -821,7 +780,7 @@ body.compact-mode .card-body {
   background: var(--bg-card);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
   white-space: nowrap;
 }
 
@@ -1087,11 +1046,7 @@ body.compact-mode .card-body {
     max-width: 80px;
   }
 
-  .stat-chip {
-    font-size: 11px;
-  }
-
-  .folder-modal {
+.folder-modal {
     padding: 16px;
   }
 
@@ -1102,4 +1057,15 @@ body.compact-mode .card-body {
   #v2ToggleBtn {
     display: none !important;
   }
+}
+
+.gallery-maintenance { position: relative; color: var(--text-secondary); }
+.gallery-maintenance summary, .card-actions summary { cursor: pointer; }
+.gallery-maintenance[open] > button {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: var(--z-dropdown);
+  background: var(--bg-card);
+  white-space: nowrap;
 }

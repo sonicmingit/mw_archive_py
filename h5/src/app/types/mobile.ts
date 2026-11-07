@@ -187,7 +187,7 @@ export interface MobileToolsResponse {
 }
 
 export interface CookieStoreEntry {
-  value?: string;
+  ref?: string;
   status?: string;
   name?: string;
 }

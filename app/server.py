@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+from starlette.concurrency import run_in_threadpool
 import re
 import shutil
 import sys
@@ -26,6 +28,8 @@ from feishu_push import FeishuPushService
 from archiver import (
     archive_model,
     build_index_html,
+    clean_rich_html,
+    safe_display_meta,
     download_file,
     fetch_instance_3mf,
     parse_cookies,
@@ -432,19 +436,19 @@ def resolve_model_dir(model_dir: str) -> Path:
     root = Path(CFG["download_dir"]).resolve()
     target = (root / model_dir).resolve()
     
-    if not str(target).startswith(str(root)):
+    if target.parent != root:
         raise HTTPException(400, "路径越界")
         
     if not target.exists() or not target.is_dir():
         # Fallback for Windows trailing space issues
         stripped_name = model_dir.strip()
         fallback_target = (root / stripped_name).resolve()
-        if fallback_target.exists() and fallback_target.is_dir():
+        if fallback_target.parent == root and fallback_target.exists() and fallback_target.is_dir():
             return fallback_target
             
         # Second fallback: scan directory to find match ignoring trailing spaces
         for item in root.iterdir():
-            if item.is_dir() and item.name.strip() == stripped_name:
+            if item.resolve().parent == root and item.is_dir() and item.name.strip() == stripped_name:
                 return item
                 
         raise HTTPException(404, "目录不存在")
@@ -1000,7 +1004,7 @@ def discard_manual_draft(session_id: str) -> bool:
         return False
     session_dir = (MANUAL_DRAFT_ROOT / sid).resolve()
     root = MANUAL_DRAFT_ROOT.resolve()
-    if not str(session_dir).startswith(str(root)):
+    if not session_dir.is_relative_to(root):
         return False
     if not session_dir.exists() or not session_dir.is_dir():
         return False
@@ -1894,34 +1898,43 @@ def normalize_gallery_flags_data(data: dict) -> dict:
     }
 
 
+def write_gallery_flags_atomic(data):
+    temp = GALLERY_FLAGS_PATH.with_name(f".flags-{uuid.uuid4().hex}.tmp")
+    try:
+        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(GALLERY_FLAGS_PATH)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def load_gallery_flags() -> dict:
     ensure_config_dir()
     changed = False
     if GALLERY_FLAGS_PATH.exists():
         try:
             data = json.loads(GALLERY_FLAGS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            data = deepcopy(DEFAULT_GALLERY_FLAGS)
-            changed = True
+        except (OSError, ValueError) as exc:
+            raise HTTPException(503, "收藏文件读取失败，请检查配置目录") from exc
     elif LEGACY_GALLERY_FLAGS_PATH.exists():
         try:
             data = json.loads(LEGACY_GALLERY_FLAGS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            data = deepcopy(DEFAULT_GALLERY_FLAGS)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(503, "旧收藏文件读取失败") from exc
+
         changed = True
     else:
         data = deepcopy(DEFAULT_GALLERY_FLAGS)
         changed = True
     normalized = normalize_gallery_flags_data(data)
     if changed or normalized != data:
-        GALLERY_FLAGS_PATH.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_gallery_flags_atomic(normalized)
     return normalized
 
 
 def save_gallery_flags(flags: dict):
     ensure_config_dir()
     data = normalize_gallery_flags_data(flags)
-    GALLERY_FLAGS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_gallery_flags_atomic(data)
 
 
 def remove_model_dirs_from_gallery_flags(flags: dict, model_dirs: List[str]) -> dict:
@@ -1939,13 +1952,6 @@ def remove_model_dirs_from_gallery_flags(flags: dict, model_dirs: List[str]) -> 
         folders.append(next_folder)
     data["folders"] = folders
     return data
-
-
-def read_cookie(cfg, platform: str = "cn") -> str:
-    entries = get_cookie_entries(cfg, platform)
-    if entries:
-        return str((entries[0] or {}).get("value") or "").strip()
-    return ""
 
 
 def write_cookie(cfg, cookie: str, platform: str = "cn", append: bool = False):
@@ -3059,6 +3065,8 @@ def mobile_localize_summary_html(model_dir: str, summary_value, model_root: Opti
     html = re.sub(r"<script[\s\S]*?>[\s\S]*?</script>", "", html, flags=re.IGNORECASE).strip()
     html = re.sub(r"<style[\s\S]*?>[\s\S]*?</style>", "", html, flags=re.IGNORECASE).strip()
 
+    html = clean_rich_html(html)
+
     def replace_src(match: re.Match) -> str:
         prefix, quote, src, _quote_tail, suffix = match.groups()
         source = str(src or "").strip()
@@ -3090,6 +3098,8 @@ def mobile_localize_summary_html(model_dir: str, summary_value, model_root: Opti
                 'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>'
                 "</div>"
             )
+        if parsed.scheme not in {"https", "http"}:
+            return ""
         safe_url = escape_html(url)
         return (
             f'<a class="mw-rich-link" href="{safe_url}" target="_blank" rel="noopener noreferrer">'
@@ -3253,12 +3263,12 @@ def build_mobile_settings_payload(cfg) -> dict:
         "notifications": {
             "telegram": {
                 "enabled": bool(telegram_cfg.get("enable_push")),
-                "botToken": str(telegram_cfg.get("bot_token") or "").strip(),
+                "botToken": "",
                 "chatId": str(telegram_cfg.get("chat_id") or "").strip(),
             },
             "feishu": {
                 "enabled": bool(feishu_cfg.get("enable_push")),
-                "webhookUrl": str(feishu_cfg.get("webhook_url") or "").strip(),
+                "webhookUrl": "",
             },
             "wecom": {
                 "enabled": bool(wecom_cfg.get("enable_push")),
@@ -3297,11 +3307,38 @@ def build_mobile_tools_payload(cfg) -> dict:
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[s.strip() for s in os.getenv("MW_TRUSTED_ORIGINS", "").split(",") if s.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def protect_browser_requests(request, call_next):
+    origin = request.headers.get("origin")
+    trusted = {s.strip() for s in os.getenv("MW_TRUSTED_ORIGINS", "").split(",") if s.strip()}
+    path = request.url.path
+    makerworld = origin in {"https://makerworld.com", "https://makerworld.com.cn"}
+    extension = bool(re.fullmatch(r"chrome-extension://[a-p]{32}", origin or ""))
+    plugin_route = (
+        (makerworld or extension) and path.startswith("/api/archive/status/")
+        or extension and path in {"/api/config", "/api/archive", "/api/cookie", "/api/logs/missing-3mf/redownload"}
+    )
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and origin and origin != str(request.base_url).rstrip("/") and origin not in trusted and not plugin_route:
+        return JSONResponse({"detail": "来源未授权"}, status_code=403)
+    if plugin_route and request.method == "OPTIONS":
+        response = PlainTextResponse("", status_code=204)
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    else:
+        response = await call_next(request)
+    if plugin_route:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers.add_vary_header("Origin")
+    if request.url.path in {"/api/config", "/api/cookie", "/api/cookies", "/api/notify-config", "/api/mobile/settings"}:
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 CFG = load_config()
 ensure_runtime_support_files(CFG)
@@ -3490,7 +3527,7 @@ def _resolve_h5_dist_file(path: str = "") -> Path:
         target = H5_DIST_DIR / "index.html"
     else:
         target = (H5_DIST_DIR / Path(clean_path)).resolve()
-        if not str(target).startswith(str(H5_DIST_DIR.resolve())):
+        if not target.is_relative_to(H5_DIST_DIR.resolve()):
             raise HTTPException(400, "非法路径")
     if target.is_file():
         return target
@@ -3537,7 +3574,6 @@ async def api_config():
         "logs_dir": cfg["logs_dir"],
         "cookie_file": cfg["cookie_file"],
         "multi_cookie_enabled": is_multi_cookie_enabled(),
-        "cookie_store": cookie_store,
         "cookie_counts": {
             "cn": len(cookie_store.get("cn") or []),
             "global": len(cookie_store.get("global") or []),
@@ -3572,8 +3608,8 @@ async def api_config():
 async def api_get_notify_config():
     return {
         "web_base_url": str(get_notify_web_base_url() or "http://127.0.0.1:8000").strip(),
-        "telegram": get_telegram_runtime_cfg(),
-        "feishu": get_feishu_runtime_cfg(),
+        "telegram": {**get_telegram_runtime_cfg(), "bot_token": ""},
+        "feishu": {**get_feishu_runtime_cfg(), "webhook_url": "", "app_secret": ""},
     }
 
 
@@ -3590,12 +3626,12 @@ async def api_save_notify_config(body: dict):
     feishu_cfg = notifications.get("feishu") if isinstance(notifications.get("feishu"), dict) else {}
 
     telegram_cfg["enable_push"] = bool(tg_payload.get("enable_push", telegram_cfg.get("enable_push", False)))
-    telegram_cfg["bot_token"] = str(tg_payload.get("bot_token", telegram_cfg.get("bot_token", ""))).strip()
+    telegram_cfg["bot_token"] = str(tg_payload.get("bot_token") or telegram_cfg.get("bot_token", "")).strip()
     telegram_cfg["chat_id"] = str(tg_payload.get("chat_id", telegram_cfg.get("chat_id", ""))).strip()
     feishu_cfg["enable_push"] = bool(fs_payload.get("enable_push", feishu_cfg.get("enable_push", False)))
-    feishu_cfg["webhook_url"] = str(fs_payload.get("webhook_url", feishu_cfg.get("webhook_url", ""))).strip()
+    feishu_cfg["webhook_url"] = str(fs_payload.get("webhook_url") or feishu_cfg.get("webhook_url", "")).strip()
     feishu_cfg["app_id"] = str(fs_payload.get("app_id", feishu_cfg.get("app_id", ""))).strip()
-    feishu_cfg["app_secret"] = str(fs_payload.get("app_secret", feishu_cfg.get("app_secret", ""))).strip()
+    feishu_cfg["app_secret"] = str(fs_payload.get("app_secret") or feishu_cfg.get("app_secret", "")).strip()
     notifications["web_base_url"] = shared_web_base or str(notifications.get("web_base_url") or "http://127.0.0.1:8000").strip()
 
     notifications["telegram"] = telegram_cfg
@@ -3609,8 +3645,8 @@ async def api_save_notify_config(body: dict):
     return {
         "status": "ok",
         "web_base_url": str(get_notify_web_base_url() or "http://127.0.0.1:8000").strip(),
-        "telegram": get_telegram_runtime_cfg(),
-        "feishu": get_feishu_runtime_cfg(),
+        "telegram": {**get_telegram_runtime_cfg(), "bot_token": ""},
+        "feishu": {**get_feishu_runtime_cfg(), "webhook_url": "", "app_secret": ""},
     }
 
 
@@ -3819,6 +3855,15 @@ async def api_local_batch_import_run_upload(
         shutil.rmtree(session_dir, ignore_errors=True)
 
 
+def public_cookie_store():
+    import hashlib
+    store = load_cookie_store(CFG)
+    return {platform: [{
+        "ref": hashlib.sha256(item["value"].encode()).hexdigest(),
+        **{key: item.get(key) for key in ("status", "success_count", "failure_count", "cooldown_until")}
+    } for item in store.get(platform, [])] for platform in ("cn", "global")}
+
+
 @app.post("/api/cookie")
 async def api_cookie(body: dict):
     payload = body or {}
@@ -3851,7 +3896,7 @@ async def api_cookie(body: dict):
         "status": "ok",
         "updated_at": datetime.now().isoformat(),
         "cookie_file": CFG["cookie_file"],
-        "cookie_store": load_cookie_store(CFG),
+        "cookie_store": public_cookie_store(),
     }
 
 
@@ -3859,7 +3904,7 @@ async def api_cookie(body: dict):
 async def api_get_cookies():
     return {
         "multi_cookie_enabled": is_multi_cookie_enabled(),
-        "cookie_store": load_cookie_store(CFG),
+        "cookie_store": public_cookie_store(),
         "cookie_file": CFG["cookie_file"],
     }
 
@@ -3870,13 +3915,22 @@ async def api_save_cookies(body: dict):
     store = payload.get("cookie_store")
     if not isinstance(store, dict):
         raise HTTPException(400, "cookie_store 格式错误")
+    previous = load_cookie_store(CFG)
+    refs = public_cookie_store()
+    for platform in ("cn", "global"):
+        known = {entry["ref"]: old for entry, old in zip(refs[platform], previous[platform])}
+        for i, row in enumerate(store.get(platform, [])):
+            if isinstance(row, dict) and row.get("ref") and not row.get("value"):
+                if row["ref"] not in known:
+                    raise HTTPException(409, "Cookie 已变更，请刷新")
+                store[platform][i] = known[row["ref"]]
     normalized, _changed = _normalize_cookie_store(store)
     save_cookie_store(CFG, normalized)
     return {
         "status": "ok",
         "updated_at": now_iso(),
         "multi_cookie_enabled": is_multi_cookie_enabled(),
-        "cookie_store": load_cookie_store(CFG),
+        "cookie_store": public_cookie_store(),
         "cookie_file": CFG["cookie_file"],
     }
 
@@ -3979,7 +4033,10 @@ async def api_bambu_download(hex_path: str):
         logger.error("Hex 路径解码失败")
         raise HTTPException(400, "无效的文件路径编码")
         
-    full_path = Path(CFG["download_dir"]) / rel_path
+    root = Path(CFG["download_dir"]).resolve()
+    full_path = (root / rel_path).resolve()
+    if not full_path.is_relative_to(root):
+        raise HTTPException(400, "路径越界")
     if not full_path.is_file():
         logger.error(f"找不到文件: {full_path}")
         raise HTTPException(404, "找不到对应的打印配置或者模型文件")
@@ -4017,7 +4074,7 @@ async def api_bambu_download_instance(model_dir: str, inst_id: int):
         raise HTTPException(404, "找不到对应的打印配置或者模型文件")
 
     full_path = (instances_dir / resolved_name).resolve()
-    if not str(full_path).startswith(str(instances_dir.resolve())) or not full_path.is_file():
+    if not full_path.is_relative_to(instances_dir.resolve()) or not full_path.is_file():
         raise HTTPException(404, "找不到对应的打印配置或者模型文件")
 
     if str(target_inst.get("fileName") or "").strip() != resolved_name:
@@ -4058,7 +4115,7 @@ async def api_bambu_download_instance_named(model_dir: str, inst_id: int, displa
         raise HTTPException(404, "找不到对应的打印配置或者模型文件")
 
     full_path = (instances_dir / resolved_name).resolve()
-    if not str(full_path).startswith(str(instances_dir.resolve())) or not full_path.is_file():
+    if not full_path.is_relative_to(instances_dir.resolve()) or not full_path.is_file():
         raise HTTPException(404, "找不到对应的打印配置或者模型文件")
 
     # 运行时自愈
@@ -4123,7 +4180,7 @@ async def api_delete_missing(index: int):
 
 @app.get("/api/gallery")
 async def api_gallery():
-    return scan_gallery(CFG)
+    return await run_in_threadpool(scan_gallery, CFG)
 
 
 @app.get("/api/mobile/overview")
@@ -4137,8 +4194,8 @@ async def api_mobile_library(refresh: int = 0):
     cfg = load_config()
     flags = load_gallery_flags()
     if int(refresh or 0) == 1:
-        rebuild_gallery_index(cfg["download_dir"], index_path=GALLERY_INDEX_PATH)
-    items = scan_gallery(cfg)
+        await run_in_threadpool(rebuild_gallery_index, cfg["download_dir"], index_path=GALLERY_INDEX_PATH)
+    items = await run_in_threadpool(scan_gallery, cfg)
     return {
         "items": [build_mobile_library_item(item, flags) for item in items if isinstance(item, dict)]
     }
@@ -4170,7 +4227,7 @@ async def api_mobile_tools():
 @app.post("/api/gallery/rebuild-index")
 async def api_rebuild_gallery_index():
     try:
-        return rebuild_gallery_index_report()
+        return await run_in_threadpool(rebuild_gallery_index_report)
     except Exception as e:
         logger.exception("重建图库索引失败")
         raise HTTPException(500, f"重建图库索引失败: {e}")
@@ -4179,6 +4236,44 @@ async def api_rebuild_gallery_index():
 @app.get("/api/gallery/flags")
 async def api_gallery_flags():
     return load_gallery_flags()
+
+
+def merge_members(current, before, after):
+    removed = set(before) - set(after)
+    return list(dict.fromkeys([x for x in current if x not in removed] + [x for x in after if x not in before]))
+
+
+@app.patch("/api/gallery/flags")
+async def update_gallery_flags(body: dict):
+    # 单进程服务内，同步读改写之间没有 await，两个浏览器的改动按请求顺序合并。
+    if not all(isinstance(body.get(k), dict) for k in ("before", "after")):
+        raise HTTPException(400, "缺少标记变更")
+    before, after = [normalize_gallery_flags_data(body[k]) for k in ("before", "after")]
+    flags = load_gallery_flags()
+    for key in ("favorites", "printed"):
+        flags[key] = merge_members(flags[key], before[key], after[key])
+    existing = {folder["id"]: folder for folder in flags["folders"]}
+    previous = {folder["id"]: folder for folder in before["folders"]}
+    for folder in after["folders"]:
+        fid = folder["id"]
+        old = previous.get(fid)
+        if old == folder:
+            continue
+        if fid not in existing:
+            if old:
+                raise HTTPException(409, "收藏夹已变更，请刷新")
+            if any(x["name"].casefold() == folder["name"].casefold() for x in existing.values()):
+                raise HTTPException(409, "同名收藏夹已存在，请刷新")
+            existing[fid] = folder
+        else:
+            current = existing[fid]
+            current["modelDirs"] = merge_members(current["modelDirs"], (old or {}).get("modelDirs", []), folder["modelDirs"])
+            for key in ("name", "description", "updatedAt"):
+                if old and old[key] != folder[key]:
+                    current[key] = folder[key]
+    flags["folders"] = list(existing.values())
+    save_gallery_flags(flags)
+    return flags
 
 
 @app.post("/api/gallery/flags")
@@ -5037,7 +5132,7 @@ async def api_model_instance_download(model_dir: str, inst_id: int):
         raise HTTPException(404, "找不到对应的打印配置或者模型文件")
 
     full_path = (instances_dir / resolved_name).resolve()
-    if not str(full_path).startswith(str(instances_dir.resolve())) or not full_path.is_file():
+    if not full_path.is_relative_to(instances_dir.resolve()) or not full_path.is_file():
         raise HTTPException(404, "找不到对应的打印配置或者模型文件")
 
     # 运行时自愈：回填 fileName，后续无需再次猜测
@@ -5062,7 +5157,7 @@ async def api_model_file_download(model_dir: str, file_path: str):
     if ".." in clean_rel.parts:
         raise HTTPException(400, "非法路径")
     full_path = (target / clean_rel).resolve()
-    if not str(full_path).startswith(str(target.resolve())):
+    if not full_path.is_relative_to(target.resolve()):
         raise HTTPException(400, "路径越界")
     if not full_path.is_file():
         raise HTTPException(404, "文件不存在")
@@ -5122,7 +5217,7 @@ async def api_v2_model_meta(model_dir: str):
 
         data["folder_open"] = get_folder_open_runtime_cfg()
 
-        return data
+        return safe_display_meta(data)
     except Exception as e:
         raise HTTPException(500, f"读取 meta.json 失败: {e}")
 

@@ -43,6 +43,7 @@ export function Library() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Filter state
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeFilterDrawer, setActiveFilterDrawer] = useState<FilterType | null>(null);
   const [selectedFilters, setSelectedFilters] = useState<Record<FilterType, string>>({
     source: ALL_FILTER_VALUE,
@@ -102,10 +103,10 @@ export function Library() {
       }
     };
 
-    void load(models.length === 0, true);
+    void load(models.length === 0, false);
 
     const handleRefresh = () => {
-      void load(false, true);
+      void load(false, false);
     };
 
     window.addEventListener(LIBRARY_REFRESH_EVENT, handleRefresh);
@@ -219,7 +220,7 @@ export function Library() {
   const FilterButton = ({ type, label }: { type: FilterType, label: string }) => (
     <button
       onClick={() => setActiveFilterDrawer(type)}
-      className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-[11px] font-medium flex items-center gap-1 shrink-0 hover:bg-slate-200 dark:hover:bg-slate-800 active:scale-95 transition-all"
+      className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-[12px] font-medium flex items-center gap-1 shrink-0 hover:bg-slate-200 dark:hover:bg-slate-800 active:scale-95 transition-colors"
     >
       <span className="truncate max-w-[92px]">{getFilterButtonLabel(type, label)}</span>
       <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
@@ -281,6 +282,7 @@ export function Library() {
 
     const nextFolders = (galleryFlags.folders || []).map((folder) => {
       const included = selectedFolderIds.includes(folder.id);
+      if (included === folder.modelDirs.includes(modelId)) return folder;
       const nextModelDirs = included
         ? Array.from(new Set([...folder.modelDirs, modelId]))
         : folder.modelDirs.filter((item) => item !== modelId);
@@ -315,21 +317,14 @@ export function Library() {
     };
 
     try {
-      await saveGalleryFlags(nextFlags);
-      setGalleryFlags(nextFlags);
-      setModels((current) =>
-        current.map((model) =>
-          model.id === modelId
-            ? {
-                ...model,
-                isFavorite: shouldFavorite,
-                favoriteFolders: nextFolders
-                  .filter((folder) => folder.modelDirs.includes(modelId))
-                  .map((folder) => folder.name),
-              }
-            : model,
-        ),
-      );
+      const merged = await saveGalleryFlags(galleryFlags, nextFlags);
+      setGalleryFlags(merged);
+      const favorites = new Set(merged.favorites);
+      setModels(current => current.map(model => ({
+        ...model,
+        isFavorite: favorites.has(model.id),
+        favoriteFolders: merged.folders.filter(folder => folder.modelDirs.includes(model.id)).map(folder => folder.name),
+      })));
       closeFavoritesModal();
     } catch (err: unknown) {
       setFavoriteError(err instanceof Error ? err.message : '收藏保存失败，请稍后重试');
@@ -355,7 +350,7 @@ export function Library() {
           <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">模型库</h1>
           <div className="flex items-center gap-2">
             {isRefreshing && (
-              <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">更新中...</span>
+              <span className="text-[12px] text-slate-400 dark:text-slate-500 font-medium">更新中...</span>
             )}
             <button 
               onClick={() => setIsCompact(!isCompact)}
@@ -374,20 +369,24 @@ export function Library() {
             placeholder="搜索模型、作者、标签..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm rounded-xl py-2.5 pl-10 pr-4 outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
+            className="w-full bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm rounded-xl py-2.5 pl-10 pr-4 outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder:text-slate-400 dark:placeholder:text-slate-500"
           />
         </div>
 
         {/* Filters */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
-          <FilterButton type="source" label="来源" />
+          <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)} className="px-3 py-2 rounded-lg border">筛选</button>
+          {filtersOpen && <><FilterButton type="source" label="来源" />
           <FilterButton type="favorites" label="收藏夹" />
           <FilterButton type="author" label="作者" />
-          <FilterButton type="tags" label="标签" />
+          <FilterButton type="tags" label="标签" /></>}
+          {!filtersOpen && Object.entries(selectedFilters).filter(([, v]) => v !== ALL_FILTER_VALUE).map(([key]) => (
+            <button key={key} aria-label={`移除${getFilterButtonLabel(key as FilterType, '')}筛选`} onClick={() => setSelectedFilters(prev => ({ ...prev, [key]: ALL_FILTER_VALUE }))}>{getFilterButtonLabel(key as FilterType, '')} ×</button>
+          ))}
           {hasActiveFilters && (
             <button
               onClick={resetFilters}
-              className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-[11px] font-medium shrink-0 hover:bg-rose-100 active:scale-95 transition-all border border-rose-100"
+              className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-[12px] font-medium shrink-0 hover:bg-rose-100 active:scale-95 transition-colors border border-rose-100"
             >
               重置
             </button>
@@ -395,11 +394,11 @@ export function Library() {
         </div>
 
         <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
-          <span className="text-[11px] font-semibold text-slate-400 shrink-0">排序</span>
+          <span className="text-[12px] font-semibold text-slate-400 shrink-0">排序</span>
           <button
             onClick={() => setSortBy('archive')}
             className={clsx(
-              'px-3 py-1.5 rounded-lg text-[11px] font-medium shrink-0 transition-all',
+              'px-3 py-1.5 rounded-lg text-[12px] font-medium shrink-0 transition-colors',
               sortBy === 'archive'
                 ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-500/20'
                 : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-transparent hover:bg-slate-200 dark:hover:bg-slate-800',
@@ -410,7 +409,7 @@ export function Library() {
           <button
             onClick={() => setSortBy('published')}
             className={clsx(
-              'px-3 py-1.5 rounded-lg text-[11px] font-medium shrink-0 transition-all',
+              'px-3 py-1.5 rounded-lg text-[12px] font-medium shrink-0 transition-colors',
               sortBy === 'published'
                 ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-500/20'
                 : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-transparent hover:bg-slate-200 dark:hover:bg-slate-800',
@@ -438,7 +437,7 @@ export function Library() {
             <div key={model.id} className="relative group bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col transition-transform">
               <Link to={`/model/${model.id}`} className="block bg-slate-100 dark:bg-slate-800 relative aspect-square overflow-hidden">
                 <img
-                  src={model.coverImage || 'https://placehold.co/320x320/e2e8f0/64748b?text=3D'}
+                  src={model.coverImage || '/h5/icons/icon-192.png'}
                   alt={model.title}
                   className="w-full h-full object-cover object-center"
                 />
@@ -451,7 +450,7 @@ export function Library() {
               
               {isCompact ? (
                 <div className="p-2">
-                  <h3 className="text-[10px] font-semibold text-slate-800 dark:text-slate-100 line-clamp-1 leading-snug">{model.title}</h3>
+                  <h3 className="text-[12px] font-semibold text-slate-800 dark:text-slate-100 line-clamp-1 leading-snug">{model.title}</h3>
                 </div>
               ) : (
                 <div className="p-3 flex-1 flex flex-col">
@@ -461,21 +460,21 @@ export function Library() {
                     </Link>
                     <button 
                       onClick={(e) => { e.preventDefault(); setActiveMenuModel(model); }}
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 active:scale-90 transition-all shrink-0 -mt-0.5 -mr-1"
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 active:scale-90 transition-colors shrink-0 -mt-0.5 -mr-1"
                     >
                       <MoreVertical size={16} />
                     </button>
                   </div>
                   
                   <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
-                    <span className="text-[9px] bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 border border-slate-100 dark:border-slate-700">
+                    <span className="text-[12px] bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 border border-slate-100 dark:border-slate-700">
                       <Box size={10} /> {model.instanceCount} 实例
                     </span>
-                    <span className="text-[9px] bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 border border-slate-100 dark:border-slate-700">
+                    <span className="text-[12px] bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 border border-slate-100 dark:border-slate-700">
                       <Clock size={10} /> {(sortBy === 'published' ? model.publishedAt : model.createdAt)?.split('T')[0]?.split(' ')[0] || '未知时间'}
                     </span>
                     {model.isFavorite && (
-                      <span className="text-[9px] bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-300 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 border border-rose-100 dark:border-rose-500/20">
+                      <span className="text-[12px] bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-300 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 border border-rose-100 dark:border-rose-500/20">
                         <FolderHeart size={10} /> 已收藏
                       </span>
                     )}

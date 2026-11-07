@@ -2,3 +2,14 @@
 @source '../**/*.{js,ts,jsx,tsx}';
 
 @import 'tw-animate-css';
+
+/* 两端复用青色交互层级，浅底标签和键盘焦点保持清晰。 */
+@theme {
+  --color-blue-50: #e9f7f7;
+  --color-blue-100: #d3eded;
+  --color-blue-200: #a6dddd;
+  --color-blue-400: #72d2da;
+  --color-blue-500: #00899a;
+  --color-blue-600: #007889;
+  --color-blue-700: #006775;
+}

@@ -1,5 +1,6 @@
 import json
 import threading
+from functools import wraps
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -11,7 +12,16 @@ GALLERY_INDEX_PATH = CONFIG_DIR / "gallery_index.json"
 MODEL_DIR_PREFIXES = ("MW_", "Others_", "LocalModel_")
 
 _TAG_RE = __import__("re").compile(r"<[^>]+>")
-_INDEX_LOCK = threading.Lock()
+_INDEX_LOCK = threading.RLock()
+
+
+def index_transaction(fn):
+    @wraps(fn)
+    def locked(*args, **kwargs):
+        with _INDEX_LOCK:
+            return fn(*args, **kwargs)
+    return locked
+
 _CACHE = {
     "mtime_ns": None,
     "payload": None,
@@ -157,33 +167,30 @@ def _write_payload(path: Path, payload: dict):
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp_path.replace(path)
-    with _INDEX_LOCK:
-        stat = path.stat()
-        _CACHE["mtime_ns"] = stat.st_mtime_ns
-        _CACHE["payload"] = payload
+    stat = path.stat()
+    _CACHE.update(path=path, mtime_ns=stat.st_mtime_ns, payload=payload)
 
 
+@index_transaction
 def load_gallery_index_payload(index_path: Optional[Path] = None) -> Optional[dict]:
     path = index_path or GALLERY_INDEX_PATH
     if not path.exists():
         return None
     stat = path.stat()
-    with _INDEX_LOCK:
-        cached = _CACHE.get("payload")
-        if cached is not None and _CACHE.get("mtime_ns") == stat.st_mtime_ns:
-            return cached
+    cached = _CACHE.get("payload")
+    if cached is not None and _CACHE.get("path") == path and _CACHE.get("mtime_ns") == stat.st_mtime_ns:
+        return cached
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
     if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
         return None
-    with _INDEX_LOCK:
-        _CACHE["mtime_ns"] = stat.st_mtime_ns
-        _CACHE["payload"] = payload
+    _CACHE.update(path=path, mtime_ns=stat.st_mtime_ns, payload=payload)
     return payload
 
 
+@index_transaction
 def get_gallery_items(root: str | Path, index_path: Optional[Path] = None) -> List[dict]:
     path = index_path or GALLERY_INDEX_PATH
     payload = load_gallery_index_payload(path)
@@ -192,6 +199,7 @@ def get_gallery_items(root: str | Path, index_path: Optional[Path] = None) -> Li
     return payload.get("items") if isinstance(payload.get("items"), list) else []
 
 
+@index_transaction
 def rebuild_gallery_index(root: str | Path, index_path: Optional[Path] = None) -> dict:
     path = index_path or GALLERY_INDEX_PATH
     payload = build_gallery_index_payload(root)
@@ -199,6 +207,7 @@ def rebuild_gallery_index(root: str | Path, index_path: Optional[Path] = None) -
     return payload
 
 
+@index_transaction
 def upsert_gallery_index_entry(root: str | Path, model_dir: str | Path, index_path: Optional[Path] = None) -> Optional[dict]:
     path = index_path or GALLERY_INDEX_PATH
     model_path = Path(model_dir)
@@ -206,6 +215,8 @@ def upsert_gallery_index_entry(root: str | Path, model_dir: str | Path, index_pa
         model_path = Path(root).resolve() / model_path
     entry = build_gallery_entry(model_path.resolve())
     payload = load_gallery_index_payload(path)
+    if payload is not None:
+        payload = dict(payload)
     if payload is None:
         payload = build_gallery_index_payload(root)
     items = payload.get("items") if isinstance(payload.get("items"), list) else []
@@ -225,6 +236,7 @@ def upsert_gallery_index_entry(root: str | Path, model_dir: str | Path, index_pa
     return entry
 
 
+@index_transaction
 def remove_gallery_index_entries(root: str | Path, model_dirs: List[str], index_path: Optional[Path] = None) -> dict:
     path = index_path or GALLERY_INDEX_PATH
     cleaned = []
@@ -233,6 +245,8 @@ def remove_gallery_index_entries(root: str | Path, model_dirs: List[str], index_
         if value and value not in cleaned:
             cleaned.append(value)
     payload = load_gallery_index_payload(path)
+    if payload is not None:
+        payload = dict(payload)
     if payload is None:
         payload = build_gallery_index_payload(root)
     items = payload.get("items") if isinstance(payload.get("items"), list) else []

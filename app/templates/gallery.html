@@ -23,7 +23,7 @@
   <link rel="stylesheet" href="/static/css/variables.css">
   <link rel="stylesheet" href="/static/css/reset.css">
   <link rel="stylesheet" href="/static/css/components.css?v=1.3">
-  <link rel="stylesheet" href="/static/css/gallery.css?v=5.9">
+  <link rel="stylesheet" href="/static/css/gallery.css?v=5.10">
   <link rel="stylesheet" href="/static/css/manual_import.css?v=5.3">
 </head>
 
@@ -52,10 +52,10 @@
         <button class="btn btn-outline" type="button" data-theme-toggle title="切换到暗黑模式">
           <i class="fas fa-moon"></i> <span class="theme-toggle-label">暗黑</span>
         </button>
-        <button class="btn btn-secondary" type="button" data-manual-import-open>
+        <button class="btn btn-primary" type="button" data-manual-import-open>
           <i class="fas fa-upload"></i> 手动导入
         </button>
-        <a class="btn btn-primary" href="/config">
+        <a class="btn btn-outline" href="/config">
           <i class="fas fa-cog"></i> 配置
         </a>
       </div>
@@ -105,9 +105,10 @@
         <div class="toolbar">
           <div class="toolbar-count">共 <span id="totalCount">0</span> 个模型</div>
           <div class="toolbar-actions-row">
+            <details class="gallery-maintenance"><summary>维护</summary>
             <button class="btn btn-outline" type="button" id="refreshIndexBtn" title="重建首页列表索引">
               <i class="fas fa-rotate"></i> 刷新索引
-            </button>
+            </button></details>
             <button class="btn btn-outline" type="button" id="selectionToggleBtn">
               <i class="fas fa-check-square"></i> 多选
             </button>
@@ -316,7 +317,7 @@
   </div>
   <script src="/static/js/theme.js?v=5.1.2" defer></script>
   <script src="/static/js/gallery_shared.js?v=5.7.3" defer></script>
-  <script src="/static/js/gallery.js?v=5.9" defer></script>
+  <script src="/static/js/gallery.js?v=5.10" defer></script>
   <script src="/static/js/manual_import.js?v=5.3" defer></script>
 </body>
 

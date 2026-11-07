@@ -340,7 +340,7 @@
 
           <div class="form-group">
             <label class="form-label">Bot Token</label>
-            <input type="text" id="tgBotToken" class="form-input" placeholder="123456:ABC-DEF...">
+            <input type="text" id="tgBotToken" title="留空保留已保存的 Token" class="form-input" placeholder="123456:ABC-DEF...">
           </div>
           <div class="form-group">
             <label class="form-label">默认 Chat ID（推送目标，可多个）</label>
@@ -367,7 +367,7 @@
 
           <div class="form-group">
             <label class="form-label">飞书机器人 Webhook</label>
-            <input type="text" id="fsWebhookUrl" class="form-input" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+            <input type="text" id="fsWebhookUrl" title="留空保留已保存的地址" class="form-input" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
             <div class="text-muted text-small mt-sm">仅配置 Webhook 时可发送文本通知。</div>
           </div>
           <div class="form-group">
@@ -377,7 +377,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">企业应用 App Secret（可选）</label>
-            <input type="text" id="fsAppSecret" class="form-input" placeholder="xxxxxxxx">
+            <input type="text" id="fsAppSecret" title="留空保留已保存的密钥" class="form-input" placeholder="xxxxxxxx">
             <div class="text-muted text-small mt-sm">用于获取 tenant_access_token；缺失时不上传图片。</div>
           </div>
 
@@ -558,7 +558,7 @@
       const canDelete = MULTI_COOKIE_ENABLED;
       const titleText = MULTI_COOKIE_ENABLED ? `Cookie ${index + 1}` : 'Cookie';
       return `
-        <div class="cookie-row" data-platform="${platform}">
+        <div class="cookie-row" data-platform="${platform}" data-ref="${item.ref || ''}">
           <div class="cookie-row-head">
             <span class="cookie-row-title">${titleText}</span>
             <div class="cookie-row-actions">
@@ -571,7 +571,7 @@
               </button>` : ''}
             </div>
           </div>
-          <textarea class="form-textarea cookie-textarea" rows="3" placeholder="请粘贴完整 Cookie">${value}</textarea>
+          <textarea class="form-textarea cookie-textarea" rows="3" placeholder="${item.ref ? '已保存，留空保留' : '请粘贴完整 Cookie'}">${value}</textarea>
           <div class="cookie-row-meta">
             <span>成功 ${successCount}</span>
             <span>失败 ${failureCount}</span>
@@ -650,10 +650,11 @@
           const textarea = row.querySelector('.cookie-textarea');
           const statusEl = row.querySelector('.cookie-status');
           return {
+            ref: row.dataset.ref || '',
             value: (textarea ? textarea.value : '').trim(),
             status: statusEl ? String(statusEl.textContent || 'active').trim() : 'active',
           };
-        }).filter(item => item.value);
+        }).filter(item => item.value || item.ref);
       };
       return {
         cn: build('cn'),
@@ -747,7 +748,9 @@
       const res = await fetch('/api/config');
       const data = await res.json();
       document.getElementById('cookieTime').textContent = 'Cookie 更新时间: ' + formatDateTimeText(data.cookie_updated_at);
-      renderCookieGroups((data && data.cookie_store) || {});
+      const cookies = await fetch("/api/cookies");
+      if (!cookies.ok) throw new Error("读取 Cookie 状态失败");
+      renderCookieGroups((await cookies.json()).cookie_store);
       const folderCfg = (data && data.folder_open) || {};
       document.getElementById('folderOpenLocalRoot').value = folderCfg.local_real_root_path || '';
       await loadNotifyConfig();

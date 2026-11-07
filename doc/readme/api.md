@@ -483,3 +483,10 @@ Telegram 命令说明：
 - 若检测到旧版 `app/config.json`、`app/cookie.txt`、`app/gallery_flags.json`
 - 系统会在启动时自动迁移到 `app/config/` 下的新文件结构
 - Docker 部署建议直接持久化整个 `app/config/` 目录
+## 图库增量标记与配置读取
+
+桌面和 H5 通过 `PATCH /api/gallery/flags` 提交 `before` 和 `after` 两份标记快照。服务端只合并二者之间的成员变更，返回合并后的标记。两个设备同时标记不同模型时均会保留。旧版全量 POST 仍会覆盖完整状态。
+
+`GET /api/config` 返回 Cookie 数量；`GET /api/cookies` 返回状态及不透明引用。编辑器提交空值和已有 ref 时保留原值，引用过期返回 409。通知凭据留空保留已设置值。移动模型库默认读取缓存索引，显式重建使用 `POST /api/gallery/rebuild-index`。
+
+浏览器默认同源。独立部署 H5 时，将实际前端来源填入后端环境变量 `MW_TRUSTED_ORIGINS`（英文逗号分隔，含协议和端口）。Chrome 扩展仅对归档相关入口放行；MakerWorld 内容脚本可跨域读归档状态。

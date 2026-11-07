@@ -21,10 +21,6 @@ import { getStoredTheme, setStoredTheme } from '../lib/theme';
 
 type SubView = 'main' | 'notifications' | 'tasks' | 'cookies';
 
-function joinCookieValues(items: Array<{ value?: string }> | undefined) {
-  return (items || []).map((item) => String(item.value || '').trim()).filter(Boolean).join('\n\n');
-}
-
 export function Settings() {
   const [activeView, setActiveView] = useState<SubView>('main');
   const [backendUrl, setBackendUrl] = useState(getApiBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : ''));
@@ -91,8 +87,8 @@ export function Settings() {
         setOutputDir(tools.organizer.rootDir || '');
         setAutoOrganize((tools.organizer.mode || 'move') === 'move');
 
-        setGlobalCookie(joinCookieValues(cookies.cookie_store.global));
-        setChinaCookie(joinCookieValues(cookies.cookie_store.cn));
+        setGlobalCookie('');
+        setChinaCookie('');
         setCnCookieCount((cookies.cookie_store.cn || []).length);
         setGlobalCookieCount((cookies.cookie_store.global || []).length);
         setCnCookieStatus((cookies.cookie_store.cn || []).map((item) => String(item.status || '').trim()).filter(Boolean));
@@ -117,8 +113,8 @@ export function Settings() {
 
   const refreshCookieSummary = async () => {
     const cookies = await getCookies();
-    setGlobalCookie(joinCookieValues(cookies.cookie_store.global));
-    setChinaCookie(joinCookieValues(cookies.cookie_store.cn));
+    setGlobalCookie('');
+    setChinaCookie('');
     setCnCookieCount((cookies.cookie_store.cn || []).length);
     setGlobalCookieCount((cookies.cookie_store.global || []).length);
     setCnCookieStatus((cookies.cookie_store.cn || []).map((item) => String(item.status || '').trim()).filter(Boolean));
@@ -477,7 +473,7 @@ export function Settings() {
               {tgEnabled && (
                 <div className="mt-3 border-t border-slate-100 dark:border-slate-800/50 pt-1 transition-colors">
                   <div className="space-y-1">
-                    <InputField label="Bot Token" value={tgToken} onChange={setTgToken} placeholder="123456:ABC-DEF1234ghIkl..." />
+                    <InputField label="Bot Token" value={tgToken} onChange={setTgToken} placeholder="留空保留已保存的 Token" />
                     <InputField label="Chat ID" value={tgChatId} onChange={setTgChatId} placeholder="-1001234567890" />
                   </div>
                   <TestButton state={testTg} onClick={() => handleTestNotification('telegram', setTestTg)} />
@@ -494,7 +490,7 @@ export function Settings() {
               </div>
               {feishuEnabled && (
                 <div className="mt-3 border-t border-slate-100 dark:border-slate-800/50 pt-1 transition-colors">
-                  <InputField label="Webhook URL" value={feishuWebhook} onChange={setFeishuWebhook} placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
+                  <InputField label="Webhook URL" value={feishuWebhook} onChange={setFeishuWebhook} placeholder="留空保留已保存的 Webhook" />
                   <TestButton state={testFeishu} onClick={() => handleTestNotification('feishu', setTestFeishu)} />
                 </div>
               )}

@@ -194,7 +194,7 @@
 
     function buildSummaryVideoHtml(rawUrl) {
         var info = parseVideoEmbedInfo(rawUrl);
-        if (!info || !info.sourceUrl) return '';
+        if (!info || !/^https?:\/\//i.test(info.sourceUrl)) return '';
 
         var safeSourceUrl = escapeAttr(info.sourceUrl);
         var safeLabel = escapeHtmlText(info.label || 'Video');

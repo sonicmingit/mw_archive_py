@@ -12,3 +12,10 @@ body {
   margin: 0;
   overflow: hidden;
 }
+
+:root { --mw-focus: #006775; }
+.dark { --mw-focus: #77e4ee; }
+:focus-visible { outline: 2px solid var(--mw-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
+}

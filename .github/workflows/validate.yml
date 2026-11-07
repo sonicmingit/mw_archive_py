@@ -1,0 +1,19 @@
+name: Validate
+on: [push, pull_request]
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r app/requirements.txt
+      - run: |
+          python -c "import unittest; suite = unittest.defaultTestLoader.discover('tests'); assert suite.countTestCases() > 0; exit(not unittest.TextTestRunner().run(suite).wasSuccessful())"
+      - run: node --test tests/*.test.js
+      - run: npm ci && npm run build
+        working-directory: h5

@@ -3,7 +3,7 @@ FROM node:20-slim AS h5-builder
 WORKDIR /web
 
 COPY h5/package*.json ./
-RUN npm install
+RUN npm ci --no-audit --no-fund
 COPY h5/ ./
 RUN npm run build
 

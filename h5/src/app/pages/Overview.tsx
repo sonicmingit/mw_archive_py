@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { 
-  Box, DownloadCloud, Library as LibraryIcon, ScanLine, FolderSync,
+  DownloadCloud, Library as LibraryIcon, ScanLine, FolderSync,
   ChevronRight
 } from 'lucide-react';
 import { getOverview } from '../lib/mobile-api';
@@ -53,7 +53,7 @@ export function Overview() {
 
   const renderRecentModel = (model: MobileLibraryItem) => (
     <Link key={model.id} to={`/model/${model.id}`} className="flex items-start gap-4 p-4 active:bg-slate-50 dark:active:bg-slate-800/60 transition-colors">
-      <img src={model.coverImage || 'https://placehold.co/128x128/e2e8f0/64748b?text=3D'} alt={model.title} className="w-16 h-16 rounded-xl object-cover bg-slate-100 dark:bg-slate-800 shrink-0" />
+      <img src={model.coverImage || '/h5/icons/icon-192.png'} alt={model.title} className="w-20 h-20 rounded-xl object-cover bg-slate-100 dark:bg-slate-800 shrink-0" />
       <div className="flex-1 min-w-0">
         <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2">{model.title}</h3>
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -77,22 +77,10 @@ export function Overview() {
       {/* Header */}
       <header className="px-5 pt-12 pb-4 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 transition-colors">
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">本地模型库</h1>
+        {data && <span className="text-sm text-slate-600 dark:text-slate-300">{totalModels} 个模型</span>}
       </header>
 
       <div className="p-5 space-y-6">
-        {/* Total Models Stat */}
-        <section>
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-4 transition-colors">
-            <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 shrink-0 transition-colors">
-              <Box className="text-blue-500" size={28} />
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-slate-800 dark:text-white tracking-tight">{totalModels}</div>
-              <div className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-0.5">模型总数</div>
-            </div>
-          </div>
-        </section>
-
         {/* Quick Actions */}
         <section>
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-3 px-1">快捷操作</h2>

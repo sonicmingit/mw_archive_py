@@ -3,6 +3,7 @@
   import App from "./app/App.tsx";
   import "./styles/index.css";
 
+  if ('caches' in window) void caches.delete('mw-api').catch(() => {});
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       const swUrl = `${import.meta.env.BASE_URL}sw.js`;

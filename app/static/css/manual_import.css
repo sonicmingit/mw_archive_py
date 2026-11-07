@@ -87,7 +87,7 @@
   cursor: pointer;
   font-size: 24px;
   color: var(--text-tertiary);
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .manual-modal__close:hover {
@@ -129,7 +129,7 @@
   border-radius: 8px;
   font-size: 14px;
   box-sizing: border-box;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
   background: var(--bg-card);
 }
 
@@ -153,7 +153,7 @@
   border-radius: 8px;
   background: var(--bg-card);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .manual-form input[type="file"]::-webkit-file-upload-button {
@@ -166,7 +166,7 @@
   font-weight: 500;
   cursor: pointer;
   margin-right: 12px;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .manual-form input[type="file"]::-webkit-file-upload-button:hover {
@@ -184,7 +184,7 @@
   font-weight: 500;
   cursor: pointer;
   margin-right: 12px;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .manual-form input[type="file"]::file-selector-button:hover {
@@ -229,7 +229,7 @@
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -310,7 +310,7 @@
   flex-direction: column;
   gap: 8px;
   background: var(--bg-card);
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .file-desc-item:hover {
@@ -421,7 +421,7 @@
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 .manual-rich-btn:hover {

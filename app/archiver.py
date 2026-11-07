@@ -1595,108 +1595,6 @@ h1.title {
 """.strip()
 
 
-def normalize_stats(meta: dict) -> dict:
-    stats = meta.get("stats") or meta.get("counts") or {}
-    likes = stats.get("likes") or stats.get("like") or 0
-    favorites = stats.get("favorites") or stats.get("favorite") or 0
-    downloads = stats.get("downloads") or stats.get("download") or 0
-    prints = stats.get("prints") or stats.get("print") or 0
-    views = stats.get("views") or stats.get("read") or stats.get("reads") or 0
-    return {
-        "likes": likes,
-        "favorites": favorites,
-        "downloads": downloads,
-        "prints": prints,
-        "views": views,
-    }
-
-
-def normalize_author(meta: dict) -> dict:
-    author_raw = meta.get("author")
-    if isinstance(author_raw, str):
-        return {"name": author_raw, "url": "", "avatar": None}
-    if not isinstance(author_raw, dict):
-        return {"name": "", "url": "", "avatar": None}
-
-    avatar_local = author_raw.get("avatarLocal") or author_raw.get("avatar_local")
-    avatar_rel = author_raw.get("avatarRelPath") or author_raw.get("avatar_local_path")
-    if not avatar_rel and avatar_local:
-        avatar_rel = f"images/{avatar_local}"
-
-    return {
-        "name": author_raw.get("name") or "",
-        "url": author_raw.get("url") or "",
-        "avatar": avatar_rel,
-    }
-
-
-def normalize_images(meta: dict) -> dict:
-    images_raw = meta.get("images")
-    design = []
-    summary = []
-    cover = None
-
-    def to_name(item):
-        if not item:
-            return None
-        return Path(item).name
-
-    if isinstance(images_raw, dict):
-        design = [to_name(x) for x in images_raw.get("design", []) if to_name(x)]
-        summary = [to_name(x) for x in images_raw.get("summary", []) if to_name(x)]
-        cover = to_name(images_raw.get("cover"))
-    elif isinstance(images_raw, list):
-        design = [to_name(x) for x in images_raw if to_name(x)]
-
-    if not design and meta.get("designImages"):
-        for item in meta.get("designImages", []):
-            if isinstance(item, dict):
-                val = item.get("fileName") or item.get("localName") or item.get("relPath")
-                name = to_name(val)
-                if name:
-                    design.append(name)
-
-    if not summary and meta.get("summaryImages"):
-        for item in meta.get("summaryImages", []):
-            if isinstance(item, dict):
-                val = item.get("fileName") or item.get("relPath")
-                name = to_name(val)
-                if name:
-                    summary.append(name)
-            elif isinstance(item, str):
-                name = to_name(item)
-                if name:
-                    summary.append(name)
-
-    if not cover:
-        cover_info = meta.get("cover") or {}
-        cover = to_name(cover_info.get("relPath") or cover_info.get("localName"))
-
-    return {"design": design, "summary": summary, "cover": cover}
-
-
-def format_duration(seconds):
-    try:
-        sec = int(seconds)
-    except Exception:
-        return ""
-    hours = sec / 3600.0
-    if hours >= 1:
-        return f"{hours:.1f} h"
-    mins = sec / 60.0
-    return f"{mins:.1f} min"
-
-
-def format_date(date_str):
-    try:
-        if not date_str:
-            return ""
-        clean = date_str.replace("Z", "+00:00") if str(date_str).endswith("Z") else str(date_str)
-        return str(datetime.fromisoformat(clean).date())
-    except Exception:
-        return date_str or ""
-
-
 def _escape_json_for_inline_script(json_text: str) -> str:
     """
     将 JSON 文本安全注入 <script>，避免 </script>（任意大小写变体）截断脚本。
@@ -1712,6 +1610,29 @@ def _escape_json_for_inline_script(json_text: str) -> str:
         .replace("\u2029", "\\u2029")
     )
 
+
+
+def clean_rich_html(value):
+    """过滤归档中的外部 HTML，保留图片、基础排版和视频来源。"""
+    import bleach
+    tags = "p br div span strong b em i u ul ol li h1 h2 h3 h4 blockquote pre code figure figcaption img a oembed table thead tbody tr th td hr".split()
+    return bleach.clean(str(value or ""), tags=tags, attributes={
+        "img": ["src", "alt", "title"], "a": ["href", "title"],
+        "oembed": ["url"], "div": ["data-oembed-url"], "figure": ["class"],
+    }, protocols=["http", "https", "mailto"], strip=True)
+
+
+def safe_display_meta(meta):
+    result = dict(meta)
+    summary = result.get("summary")
+    if isinstance(summary, dict):
+        result["summary"] = {**summary, **{key: clean_rich_html(summary[key]) for key in ("html", "raw", "text") if key in summary}}
+    if isinstance(result.get("instances"), list):
+        result["instances"] = [
+            {**row, "summary": clean_rich_html(row.get("summary"))} if isinstance(row, dict) else row
+            for row in result["instances"]
+        ]
+    return result
 
 
 def build_index_html(meta: dict, assets: dict = None) -> str:
@@ -1785,7 +1706,7 @@ def build_index_html(meta: dict, assets: dict = None) -> str:
 
     # 注入离线 Meta 和 JS (使用 JSON 安全的直接注入)
     import json
-    meta_json_str = json.dumps(meta, ensure_ascii=False)
+    meta_json_str = json.dumps(safe_display_meta(meta), ensure_ascii=False)
     meta_json_str = _escape_json_for_inline_script(meta_json_str)
     injection_script = f"\n<script>\nwindow.__OFFLINE_META__ = {meta_json_str};\n</script>\n"
     js_replacement = f"{injection_script}<script>\n{model_js}\n</script>"

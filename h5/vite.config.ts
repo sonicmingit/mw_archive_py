@@ -5,22 +5,9 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 
-function figmaAssetResolver() {
-  return {
-    name: 'figma-asset-resolver',
-    resolveId(id) {
-      if (id.startsWith('figma:asset/')) {
-        const filename = id.replace('figma:asset/', '')
-        return path.resolve(__dirname, 'src/assets', filename)
-      }
-    },
-  }
-}
-
 export default defineConfig({
   base: '/h5/',
   plugins: [
-    figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
     // Tailwind is not being actively used – do not remove them
     react(),
@@ -83,10 +70,10 @@ export default defineConfig({
           },
           {
             urlPattern: ({ url, request }) =>
-              request.method === 'GET' && url.pathname.startsWith('/api/'),
+              request.method === 'GET' && ['/api/mobile/library', '/api/mobile/overview'].includes(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'mw-api',
+              cacheName: 'mw-library-v2',
               networkTimeoutSeconds: 5,
               expiration: {
                 maxEntries: 80,

@@ -26,7 +26,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-tests/
+
 
 # Virtual environments
 .venv
@@ -53,6 +53,7 @@ data*/
 *.json
 cookie.txt
 !config.json
+!plugin/chrome_extension/mw_quick_archive_ext/manifest.json
 !h5/package.json
 !h5/package-lock.json
 !h5/src/app/lib/
